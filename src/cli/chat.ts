@@ -1,0 +1,79 @@
+// Simulador de terminal: conversa con el motor usando la agenda en memoria.
+// No necesita WhatsApp ni Google. Uso: npm run chat
+// También acepta un guion por entrada estándar:  printf 'hola\n1\n' | npm run chat
+
+import 'dotenv/config';
+import { createInterface } from 'node:readline';
+import { MemoryAgendaProvider } from '../agenda/memory.js';
+import { Bot } from '../bot.js';
+import { loadClinic } from '../config/clinic.js';
+import type { Outgoing } from '../engine/types.js';
+import { MemoryHumanPauseStore, MemorySessionStore } from '../sessions/store.js';
+import { fitOutgoing } from '../whatsapp/limits.js';
+
+// En el simulador no se mezclan los logs JSON con la conversación (use LOG_LEVEL=info para verlos).
+process.env.LOG_LEVEL ??= 'warn';
+
+const PHONE = '50600000000'; // número ficticio
+const clinic = loadClinic(process.env.CLINIC_CONFIG_PATH ?? 'config/centro.json');
+const confirmationMode = process.env.CONFIRMATION_MODE === 'auto' ? 'auto' : 'recepcion';
+const humanPauseMinutes = Number(process.env.HUMAN_PAUSE_MINUTES ?? 120);
+
+const bot = new Bot({
+  clinic,
+  agenda: new MemoryAgendaProvider({ clinic, confirmationMode }),
+  sessions: new MemorySessionStore(Number(process.env.SESSION_TTL_MINUTES ?? 30) * 60_000),
+  pauses: new MemoryHumanPauseStore(),
+  humanPauseMinutes,
+  confirmationMode,
+});
+
+/** Opciones numeradas de lo último que mostró el bot: escribir "2" equivale a tocar la opción 2. */
+let options: Array<{ id: string; title: string }> = [];
+
+function render(raw: Outgoing[]): void {
+  options = [];
+  for (const original of raw) {
+    const message = fitOutgoing(original); // el simulador respeta los mismos límites que WhatsApp
+    console.log(`\nBOT> ${message.body.replace(/\n/g, '\n     ')}`);
+    if (message.type === 'buttons') {
+      for (const b of message.buttons) options.push({ id: b.id, title: b.title });
+    } else if (message.type === 'list') {
+      console.log(`     [${message.buttonLabel}]`);
+      for (const r of message.rows) options.push({ id: r.id, title: r.title + (r.description ? ` - ${r.description}` : '') });
+      // Las filas se numeran juntas; los botones de un mensaje anterior ya no aplican.
+    }
+    if (message.type !== 'text') {
+      const start = options.length - (message.type === 'buttons' ? message.buttons.length : message.rows.length);
+      options.slice(start).forEach((o, i) => console.log(`       ${start + i + 1}) ${o.title}`));
+    }
+  }
+}
+
+async function main(): Promise<void> {
+  const interactive = Boolean(process.stdin.isTTY);
+  console.log(`Simulador de ${clinic.nombre} (agenda en memoria). Escriba un número para elegir una opción, o texto libre.`);
+  console.log('Comandos: /salir para terminar.');
+  if (interactive) process.stdout.write('\nUSTED> ');
+
+  const rl = createInterface({ input: process.stdin });
+  for await (const line of rl) {
+    const input = line.trim();
+    if (input === '/salir') break;
+    if (input) {
+      if (!interactive) console.log(`\nUSTED> ${input}`);
+      const option = /^\d+$/.test(input) ? options[Number(input) - 1] : undefined;
+      const incoming = option ? ({ type: 'choice', id: option.id, title: option.title } as const) : ({ type: 'text', text: input } as const);
+      const replies = await bot.handle(PHONE, incoming);
+      if (replies.length === 0) console.log('\n(el bot está en pausa: recepción atiende esta conversación)');
+      else render(replies);
+    }
+    if (interactive) process.stdout.write('\nUSTED> ');
+  }
+  rl.close();
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

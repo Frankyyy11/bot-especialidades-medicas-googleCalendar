@@ -1,0 +1,112 @@
+{
+  "_aviso": "DATOS DE EJEMPLO, TOTALMENTE FICTICIOS. Reemplácelos por los datos reales del centro antes de usar el bot.",
+  "nombre": "Centro Médico Ejemplo",
+  "direccion": "Calle Ficticia 123, Ciudad Ejemplo, Costa Rica",
+  "telefono": "2222-0000",
+  "enlaceMapa": "https://maps.example.com/centro-medico-ejemplo",
+  "horarioGeneral": [
+    "Lunes a viernes: 7:00 a. m. a 5:00 p. m.",
+    "Sábados: 8:00 a. m. a 12:00 m. d."
+  ],
+  "formasPago": ["Efectivo", "Tarjeta de crédito o débito", "SINPE Móvil"],
+  "pedirCedula": false,
+  "maxCitasActivasPorTelefono": 2,
+  "anticipacionMinHoras": 2,
+  "diasMaxAdelanto": 30,
+  "feriados": ["2026-12-25", "2027-01-01"],
+  "palabrasUrgencia": [],
+  "especialidades": [
+    {
+      "id": "cardiologia",
+      "nombre": "Cardiología",
+      "descripcion": "Valoración y control de la salud del corazón y del sistema circulatorio.",
+      "palabrasClave": ["cardiologia", "cardiologo", "cardiologa", "corazon"],
+      "precio": "₡35 000",
+      "duracionMin": 30,
+      "medicos": [
+        {
+          "id": "cardio-1",
+          "nombre": "Dra. Alma Ejemplo",
+          "calendarId": "REEMPLAZAR-cardio-1@group.calendar.google.com",
+          "horario": {
+            "lunes": ["08:00-12:00", "13:00-16:00"],
+            "miercoles": ["08:00-12:00"],
+            "viernes": ["08:00-12:00"]
+          }
+        },
+        {
+          "id": "cardio-2",
+          "nombre": "Dr. Bruno Prueba",
+          "calendarId": "REEMPLAZAR-cardio-2@group.calendar.google.com",
+          "horario": {
+            "martes": ["13:00-17:00"],
+            "jueves": ["13:00-17:00"],
+            "sabado": ["08:00-12:00"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "dermatologia",
+      "nombre": "Dermatología",
+      "descripcion": "Atención de la piel, el cabello y las uñas.",
+      "palabrasClave": ["dermatologia", "dermatologo", "dermatologa", "piel"],
+      "precio": "₡30 000",
+      "duracionMin": 20,
+      "medicos": [
+        {
+          "id": "derma-1",
+          "nombre": "Dra. Carla Muestra",
+          "calendarId": "REEMPLAZAR-derma-1@group.calendar.google.com",
+          "horario": {
+            "lunes": ["09:00-12:00", "13:00-17:00"],
+            "martes": ["09:00-12:00"],
+            "jueves": ["09:00-12:00", "13:00-17:00"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "pediatria",
+      "nombre": "Pediatría",
+      "descripcion": "Control y seguimiento del crecimiento y desarrollo de niños y adolescentes.",
+      "palabrasClave": ["pediatria", "pediatra", "ninos", "nino", "ninas", "bebe", "hijo"],
+      "precio": "₡28 000",
+      "duracionMin": 30,
+      "medicos": [
+        {
+          "id": "pedia-1",
+          "nombre": "Dr. Diego Ficticio",
+          "calendarId": "REEMPLAZAR-pedia-1@group.calendar.google.com",
+          "horario": {
+            "lunes": ["07:30-12:00"],
+            "martes": ["07:30-12:00", "13:00-16:00"],
+            "miercoles": ["07:30-12:00"],
+            "jueves": ["07:30-12:00", "13:00-16:00"],
+            "viernes": ["07:30-12:00"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ginecologia",
+      "nombre": "Ginecología",
+      "descripcion": "Control ginecológico y salud de la mujer.",
+      "palabrasClave": ["ginecologia", "ginecologo", "ginecologa", "ginecologico"],
+      "precio": "₡38 000",
+      "duracionMin": 30,
+      "medicos": [
+        {
+          "id": "gineco-1",
+          "nombre": "Dra. Elena Demo",
+          "calendarId": "REEMPLAZAR-gineco-1@group.calendar.google.com",
+          "horario": {
+            "martes": ["08:00-12:00"],
+            "miercoles": ["13:00-17:00"],
+            "viernes": ["13:00-17:00"]
+          }
+        }
+      ]
+    }
+  ]
+}
