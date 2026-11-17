@@ -157,6 +157,25 @@ export function wantsToBook(text: string): boolean {
   return anyPhrase(norm, ['cita', 'citas', 'agendar', 'reservar', 'sacar cita', 'apartar', 'agendo', 'agendame']);
 }
 
+// --- Médicos ---------------------------------------------------------------
+
+/** Ids de los médicos del centro cuyo nombre o apellido aparece en el texto (sin contar "Dr."/"Dra."). */
+export function matchDoctors(
+  text: string,
+  clinic: { especialidades: ReadonlyArray<{ medicos: ReadonlyArray<{ id: string; nombre: string }> }> },
+): string[] {
+  const norm = normalize(text);
+  if (!norm) return [];
+  return clinic.especialidades
+    .flatMap((spec) => spec.medicos)
+    .filter((doctor) =>
+      normalize(doctor.nombre)
+        .split(' ')
+        .some((token) => token !== 'dr' && token !== 'dra' && token.length > 2 && hasPhrase(norm, token)),
+    )
+    .map((doctor) => doctor.id);
+}
+
 // --- Especialidades --------------------------------------------------------
 
 /** Especialidades cuyo nombre o palabras clave aparecen en el texto. */

@@ -14,6 +14,9 @@ Este documento explica la capa de IA descrita en `SPEC-IA.md`. Es **opcional**: 
 1. **Comprensión.** Cuando las reglas no entienden un texto libre (o el texto trae más información de la que las reglas extraen), se le pide una interpretación estructurada: intención, especialidad, médico, fecha, franja (mañana/tarde) y hora. Todo se valida: ids que no existen, fechas pasadas o fuera de `diasMaxAdelanto` se descartan campo por campo. Con eso el bot salta pasos: *"ocupo cita con cardiología el jueves en la tarde"* va directo a los horarios reales de ese jueves por la tarde. Si el día u hora pedidos no están libres, lo dice y ofrece los más cercanos de la agenda.
 2. **Redacción natural.** La IA puede añadir una o dos frases cordiales (máx. 300 caracteres) *antes* del mensaje con datos, que sigue saliendo de `src/engine/messages.ts`. Nunca redacta ni modifica: urgencias (9-1-1), límite médico, aviso de privacidad, listas de horarios, resumen de cita, confirmación ni cancelación.
 
+3. **Conversación a mitad de un paso.** Si el paciente está, por ejemplo, eligiendo especialidad y pregunta algo general, saluda o agradece, el bot contesta con la frase de la IA y ofrece seguir con un mensaje corto y un botón («Ver especialidades», «Ver días», «Ver resumen»...). No repite la lista completa, no cambia de paso y no pierde lo ya elegido; el paciente también puede escribir su respuesta directamente. Esto vale en todos los pasos menos nombre y cédula. Una respuesta así **no cuenta como fallo**: el "no entendido" solo sale si la IA está apagada, falla o no devuelve nada útil, y al segundo fallo seguido se ofrece recepción.
+4. **Lo que el centro no ofrece.** Si preguntan por una especialidad, un médico o un servicio que no está en `config/centro.json` (p. ej. *"Odontología no tiene?"*), la IA solo lo **señala** con el campo `noDisponible` (`especialidad`, `medico` o `servicio`). El texto lo escribe el código desde `messages.ts` con los datos reales (*"Por el momento no contamos con esa especialidad. Sí ofrecemos: ..."*) y nunca repite palabras de la IA. Antes de usar la señal el código la coteja: si en el mensaje aparece una especialidad o un médico que sí existe, se ignora. Así la IA no puede negar algo que el centro sí tiene.
+
 ### Guardas sobre la frase de la IA
 
 Se descarta (y se usa solo la plantilla) si falla cualquiera de estas:
@@ -32,7 +35,7 @@ Límite conocido de la guarda de números: comprueba que el número exista *en a
 4. Límite médico por reglas (la IA no se llama).
 5. Solo si lo anterior no resolvió el mensaje: IA.
 6. Si la IA clasifica `urgencia` o `pregunta_medica`: respuestas fijas.
-7. Sin interpretación útil: comportamiento de "no entendido" de siempre (al segundo fallo, recepción).
+7. Sin interpretación útil: comportamiento de "no entendido" de siempre (al segundo fallo, recepción). Una respuesta conversacional válida no cuenta como fallo.
 
 Excepción de orden menor: cuando el mensaje empieza una reserva por reglas (p. ej. "cita con cardiología el jueves a las 3") se consulta la IA *antes* para no perder el día y la hora; las urgencias y el límite médico ya se evaluaron antes por reglas.
 
@@ -88,10 +91,32 @@ Ponga `AI_PROVIDER=none` (o quite la variable) y reinicie. No hace falta tocar n
 
 ## Simulador
 
-`npm run chat` usa la IA simulada (`fake`) por defecto, sin red ni credenciales. Con `AI_PROVIDER=gemini` y la key en `.env` usa Gemini real; con `AI_PROVIDER=none` solo reglas. `CHAT_NOW=2026-11-16T10:00:00-06:00` fija el reloj para guiones reproducibles:
+`npm run chat` usa la IA simulada (`fake`) cuando `AI_PROVIDER` no está definida, sin red ni credenciales. Con `AI_PROVIDER=gemini` y la key en `.env` usa Gemini real; con `AI_PROVIDER=none` solo reglas.
+
+**Ojo con el `.env`:** el simulador también lo lee. Si su `.env` dice `AI_PROVIDER=none`, el simulador corre **sin IA** (lo avisa al arrancar) y verá el "no entendido" de las reglas. Para probar la IA simulada sin tocar el `.env`, defina la variable solo para esa terminal:
+
+```powershell
+# PowerShell (Windows)
+$env:AI_PROVIDER="fake"; npm run chat
+```
 
 ```bash
-AI_PROVIDER=fake CHAT_NOW=2026-11-16T10:00:00-06:00 npm run chat < test/fixtures/ia-simulador.txt
+# bash
+AI_PROVIDER=fake npm run chat
+```
+
+En PowerShell la variable queda definida en esa ventana; para quitarla: `Remove-Item Env:AI_PROVIDER`.
+
+`CHAT_NOW=2026-11-16T10:00:00-06:00` fija el reloj para guiones reproducibles. Hay dos guiones: `test/fixtures/ia-simulador.txt` (general) y `test/fixtures/ia-conversacion.txt` (preguntas a mitad de un paso y cosas que el centro no ofrece):
+
+```powershell
+# PowerShell (Windows)
+$env:AI_PROVIDER="fake"; $env:CHAT_NOW="2026-11-16T10:00:00-06:00"; Get-Content test/fixtures/ia-conversacion.txt | npm run chat
+```
+
+```bash
+# bash
+AI_PROVIDER=fake CHAT_NOW=2026-11-16T10:00:00-06:00 npm run chat < test/fixtures/ia-conversacion.txt
 ```
 
 El proveedor simulado imita a un modelo con reglas simples y, ante un intento de inyección ("ignore las instrucciones..."), se comporta como un modelo **comprometido** a propósito, para demostrar que las guardas y el motor lo neutralizan.
@@ -102,6 +127,9 @@ Tiempo agotado, error HTTP, JSON inválido, bloqueo de seguridad o cuota: un rei
 
 ## Límites conocidos
 
+- El proveedor simulado reconoce lo que el centro no ofrece con una lista corta de palabras comunes (odontología, psicología, laboratorio, "doctor Fulano"...) y contesta cualquier otra cosa con una frase genérica que remite a recepción, así que con `fake` casi nunca verá el "no entendido". Un modelo real compara contra los datos del centro; eso no lo miden las pruebas.
+- El texto de "no se ofrece" dice "esa especialidad" / "ese médico" / "ese servicio": a propósito no repite la palabra del paciente, porque vendría de la IA.
+- "hola" o "menú" solos dentro de un flujo siguen reiniciando al menú por regla (antes de la IA).
 - Si el paciente da fecha u hora pero no especialidad ("quiero cita el jueves"), el bot pide la especialidad y **no recuerda** el día pedido.
 - La IA no resuelve ambigüedades por sí sola: ante varias especialidades en un mismo mensaje, se descarta la especialidad.
 - La calidad real del entendimiento depende del modelo; las pruebas automáticas usan IA simulada y **no miden** eso.

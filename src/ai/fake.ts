@@ -11,13 +11,14 @@ import {
   isNo,
   isUrgent,
   isYes,
+  matchDoctors,
   matchSpecialties,
   normalize,
   wantsHuman,
   wantsToBook,
 } from '../engine/intents.js';
 import { addDays, dayKey, DAY_KEYS, timeOf } from '../util/dates.js';
-import type { AiInput, AiProvider, Franja, Interpretation } from './provider.js';
+import type { AiInput, AiProvider, Franja, Interpretation, NoDisponible } from './provider.js';
 
 const INJECTION = /\b(ignor\w*|olvid\w*|desobedec\w*)\b.*\b(instrucciones|reglas|indicaciones)\b|\bsystem prompt\b|\bprompt del sistema\b/;
 const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -61,13 +62,25 @@ function resolveHour(norm: string): string | undefined {
   return timeOf(hour * 60 + minutes);
 }
 
-function resolveDoctor(clinic: Clinic, norm: string): string | undefined {
-  for (const spec of clinic.especialidades) {
-    for (const doctor of spec.medicos) {
-      const tokens = normalize(doctor.nombre).split(' ').filter((t) => t !== 'dr' && t !== 'dra' && t.length > 2);
-      if (tokens.some((t) => new RegExp(`\\b${t}\\b`).test(norm)) && findDoctor(clinic, doctor.id)) return doctor.id;
-    }
-  }
+function resolveDoctor(clinic: Clinic, text: string): string | undefined {
+  return matchDoctors(text, clinic).find((id) => findDoctor(clinic, id));
+}
+
+// Lo que un paciente suele pedir y un centro puede no tener. Un modelo real lo deduce comparando con los datos
+// del centro; aquí se imita con raíces de palabras comunes (se ignoran las que el centro sí menciona).
+const OTHER_SPECIALTIES = /\b(odontolog|dentista|dental|oftalmolog|oculista|psicolog|psiquiatr|nutricion|ortoped|traumatolog|urolog|neurolog|otorrino|endocrinolog|gastroenterolog|oncolog|geriatr|neumolog|reumatolog|nefrolog|fisioterap|cardiolog|dermatolog|pediatr|ginecolog|medicina general|medico general)\w*/g;
+const OTHER_SERVICES = /\b(laboratorio|examenes? de sangre|rayos x|radiografia|ultrasonido|tomografia|resonancia|vacuna|farmacia|ambulancia|hospitalizacion|cirugia)\w*/g;
+const DOCTOR_MENTION = /\b(?:dr|dra|doctor|doctora)\s+([a-zñ]{3,})\b/;
+const NOT_A_NAME = new Set(['que', 'del', 'para', 'por', 'con', 'los', 'las', 'una', 'uno', 'hay', 'esta', 'tiene', 'tienen', 'atiende', 'disponible', 'cualquiera']);
+
+function resolveUnavailable(clinic: Clinic, text: string, norm: string): NoDisponible | undefined {
+  if (matchSpecialties(text, clinic.especialidades).length > 0 || matchDoctors(text, clinic).length > 0) return undefined;
+  const known = normalize(clinic.especialidades.flatMap((e) => [e.nombre, e.descripcion, ...e.palabrasClave]).join(' '));
+  const unknown = (re: RegExp) => (norm.match(re) ?? []).some((hit) => !known.includes(hit));
+  if (unknown(OTHER_SPECIALTIES)) return 'especialidad';
+  const doctor = norm.match(DOCTOR_MENTION)?.[1];
+  if (doctor && !NOT_A_NAME.has(doctor)) return 'medico';
+  if (unknown(OTHER_SERVICES)) return 'servicio';
   return undefined;
 }
 
@@ -83,16 +96,21 @@ export class FakeAiProvider implements AiProvider {
     if (isUrgent(text, clinic.palabrasUrgencia)) return { intent: 'urgencia' };
     if (isMedicalQuestion(text) && !wantsToBook(text)) return { intent: 'pregunta_medica' };
     if (wantsHuman(text)) return { intent: 'recepcion' };
-    if (/\b(gracias|muchas gracias|se lo agradezco|mil gracias)\b/.test(norm)) {
+    const words = norm.split(' ').length;
+    if (/\b(gracias|agradezco|muy amable)\b/.test(norm) || (words <= 3 && /\b(perfecto|excelente|genial|entendido|que bien)\b/.test(norm))) {
       return { intent: 'agradecimiento', respuestaBreve: 'Con mucho gusto, para eso estamos.' };
     }
     if (isMenuWord(text)) return { intent: 'saludo', respuestaBreve: 'Con gusto le ayudo.' };
     if (isYes(text)) return { intent: 'confirmar' };
     if (isNo(text)) return { intent: 'negar' };
 
+    // Pidieron algo que no está en los datos del centro: solo se señala; el texto lo pone el código.
+    const noDisponible = resolveUnavailable(clinic, text, norm);
+    if (noDisponible) return { intent: wantsToBook(text) ? 'agendar' : 'otro', noDisponible };
+
     const specs = matchSpecialties(text, clinic.especialidades);
     const especialidadId = specs.length === 1 ? specs[0]!.id : undefined;
-    const medicoId = resolveDoctor(clinic, norm);
+    const medicoId = resolveDoctor(clinic, text);
     const fecha = resolveDate(norm, input.today);
     const franja = resolveFranja(norm);
     const hora = resolveHour(norm);
@@ -127,6 +145,9 @@ export class FakeAiProvider implements AiProvider {
       return { intent: 'horario_ubicacion', respuestaBreve };
     }
     if (hasBookingInfo) return booking; // p. ej. "mejor el viernes en la tarde" dentro del flujo
+    // Saludo con algo más ("hola, disculpe la molestia"): el saludo solo lo resuelven las reglas (menú).
+    if (/^(hola|holi|buenas|buenos dias|buen dia|saludos)\b/.test(norm)) return { intent: 'saludo', respuestaBreve: '¡Hola! Con mucho gusto le ayudo.' };
+    if (/\b(un momento|un momentito|ya casi|deme un minuto|espere|permitame)\b/.test(norm)) return { intent: 'otro', respuestaBreve: 'Claro, con calma. Aquí le espero.' };
     return { intent: 'otro', respuestaBreve: 'No tengo ese dato a mano; recepción con gusto le ayuda con esa consulta.' };
   }
 }

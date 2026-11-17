@@ -4,7 +4,7 @@
 
 import { logger } from '../util/logger.js';
 import { isExit, isMedicalQuestion, isMenuWord, isUrgent, normalize, wantsHuman, wantsToBook } from './intents.js';
-import { M } from './messages.js';
+import { ID, M } from './messages.js';
 import {
   handleDay,
   handleDoctor,
@@ -44,8 +44,8 @@ export interface EngineResult {
   handoff: boolean;
   /** true si las reglas no entendieron el mensaje (candidato a la IA). */
   unresolved: boolean;
-  /** Dónde puede ir la `respuestaBreve` de la IA: insertarla o reemplazar el "no entendido" genérico. */
-  briefSlot?: { insertAt: number; replace: boolean };
+  /** Dónde puede ir la `respuestaBreve` de la IA (siempre antes del mensaje del código, nunca junto al "no entendido"). */
+  briefSlot?: { insertAt: number };
 }
 
 export async function handleMessage(
@@ -78,15 +78,12 @@ export async function handleMessage(
       } else {
         s.failures += 1;
         if (s.failures >= 2) replies.push(M.offerHuman());
-        else if (outcome.result === null) {
-          if (assist?.briefOk) briefSlot = { insertAt: replies.length, replace: true };
-          replies.push(M.notUnderstood(), ...(await reprompt(ctx, s)));
-        }
+        else if (outcome.result === null) replies.push(M.notUnderstood(), ...(await reprompt(ctx, s)));
         else replies.push(...(outcome.result as { retry: Outgoing[] }).retry);
       }
     } else {
       s.failures = 0;
-      if (outcome.briefAllowed) briefSlot = { insertAt: replies.length, replace: false };
+      if (outcome.briefAllowed) briefSlot = { insertAt: replies.length };
       replies.push(...(outcome.result as Outgoing[]));
     }
   } catch (error) {
@@ -112,6 +109,8 @@ async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist?
   if (incoming.type === 'choice' && incoming.id.startsWith('menu:')) {
     return routeMenuChoice(ctx, s, incoming.id.slice('menu:'.length));
   }
+  // Botón "continuar" de una respuesta conversacional: vuelve a mostrar el paso en que estaba.
+  if (incoming.type === 'choice' && incoming.id === ID.continuar) return { result: await reprompt(ctx, s) };
 
   if (incoming.type === 'text') {
     const { text } = incoming;
@@ -127,7 +126,7 @@ async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist?
 
   // Solo si lo anterior no resolvió el mensaje (o hay más información que extraer): interpretación de la IA.
   if (assist && incoming.type === 'text') {
-    const assisted = await applyAssist(ctx, s, incoming, assist, reprompt);
+    const assisted = await applyAssist(ctx, s, incoming, assist);
     if (assisted) return assisted;
   }
 

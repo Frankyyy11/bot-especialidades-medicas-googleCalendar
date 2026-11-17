@@ -113,9 +113,8 @@ export class Bot {
       const verdict = guardBrief(consulted.brief, clinic, outgoingText(replies));
       if (verdict.ok && verdict.text) {
         briefUsed = verdict.text;
-        const { insertAt, replace } = result.briefSlot;
         replies = [...replies];
-        replies.splice(insertAt, replace ? 1 : 0, { type: 'text', body: verdict.text });
+        replies.splice(result.briefSlot.insertAt, 0, { type: 'text', body: verdict.text });
       } else {
         logger.info('ia_respuesta_descartada', { phone, motivo: verdict.reason });
       }

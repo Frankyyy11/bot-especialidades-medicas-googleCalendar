@@ -31,7 +31,7 @@ describe('primer contacto', () => {
     const replies = await h.say('asdfgh');
     expect(allText(replies)).toContain('8968');
     expect(lastList(replies).rows).toHaveLength(5);
-    expect(allText(replies)).not.toContain('no logré entender');
+    expect(allText(replies)).not.toContain('no estoy seguro de haberle entendido');
   });
 });
 
@@ -387,7 +387,7 @@ describe('reglas globales', () => {
     expect(lastList(replies).rows).toHaveLength(5);
     // la siguiente respuesta ya no se interpreta como parte del flujo anterior
     const next = await h.pick('med:cardio-1');
-    expect(allText(next)).toContain('no logré entender');
+    expect(allText(next)).toContain('no estoy seguro de haberle entendido');
   });
 
   it('"salir" o "cancelar" dentro de un flujo lo abandonan', async () => {
@@ -415,7 +415,7 @@ describe('mensajes no entendidos', () => {
     const h = createHarness();
     await h.say('hola');
     let replies = await h.say('blablabla');
-    expect(allText(replies)).toContain('no logré entender');
+    expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
     expect(lastList(replies).rows).toHaveLength(5);
 
     replies = await h.say('qwerty');
@@ -432,7 +432,7 @@ describe('mensajes no entendidos', () => {
     await h.say('blablabla');
     await h.say('horario');
     const replies = await h.say('blablabla');
-    expect(allText(replies)).toContain('no logré entender'); // otra vez el primer fallo, no la oferta
+    expect(allText(replies)).toContain('no estoy seguro de haberle entendido'); // otra vez el primer fallo, no la oferta
   });
 
   it('también cuenta dentro de un flujo', async () => {

@@ -6,9 +6,9 @@
 //  - La IA no confirma ni cancela: "confirmar" y "negar" se ignoran; crear/cancelar exige el paso explícito.
 //  - Los datos que ve el paciente salen de la configuración y de la agenda, nunca de la IA.
 
-import type { Interpretation } from '../../ai/provider.js';
+import type { Interpretation, NoDisponible } from '../../ai/provider.js';
 import { findDoctor, findSpecialty } from '../../config/clinic.js';
-import { detectMenuIntent, isExit, isMedicalQuestion, isMenuWord, isUrgent, matchSpecialties, normalize, wantsHuman, wantsToBook } from '../intents.js';
+import { detectMenuIntent, isExit, isMedicalQuestion, isMenuWord, isUrgent, matchDoctors, matchSpecialties, normalize, wantsHuman, wantsToBook } from '../intents.js';
 import { M } from '../messages.js';
 import type { Incoming, Outgoing, Session } from '../types.js';
 import { startAppointments } from './appointments.js';
@@ -70,7 +70,6 @@ export async function applyAssist(
   s: Session,
   incoming: Incoming,
   assist: Assist,
-  reprompt: (ctx: EngineContext, s: Session) => Promise<Outgoing[]>,
 ): Promise<AssistOutcome | undefined> {
   let it = assist.interpretation;
 
@@ -89,8 +88,20 @@ export async function applyAssist(
   }
 
   const inBooking = s.state.startsWith('AGENDAR_');
+  const inFlow = s.state !== 'MENU';
   const hasBookingInfo = Boolean(it.especialidadId || it.medicoId || it.fecha || it.franja || it.hora);
   const answered = (result: Outgoing[]): AssistOutcome => ({ result, briefAllowed: true });
+  // Respuesta conversacional: la frase breve contesta y el paso actual se ofrece con un botón, sin repetir
+  // la lista completa ni cambiar de estado. No cuenta como fallo.
+  const keepGoing = (...before: Outgoing[]): AssistOutcome => answered([...before, M.continueStep(s.state)]);
+
+  // Preguntaron por algo que el centro no ofrece. El texto sale de messages.ts con datos de la configuración;
+  // la frase de la IA no se usa aquí. El paciente sigue en el mismo paso.
+  const missing = assist.mode === 'fallback' && it.intent !== 'recepcion' ? unavailableKind(ctx, incoming, it) : undefined;
+  if (missing) {
+    const spec = inBooking && s.booking.especialidadId ? findSpecialty(ctx.clinic, s.booking.especialidadId) : undefined;
+    return { result: [M.notOffered({ clinic: ctx.clinic, kind: missing, state: s.state, spec })] };
+  }
 
   switch (it.intent) {
     case 'agendar':
@@ -100,22 +111,37 @@ export async function applyAssist(
       return answered(spec ? showServiceDetail(s, spec) : startServices(ctx, s));
     }
     case 'horario_ubicacion':
-      return answered(showHoursAndLocation(ctx, s));
+      // A mitad de un paso se contesta sin perder lo avanzado.
+      return inFlow ? keepGoing(M.hours(ctx.clinic)) : answered(showHoursAndLocation(ctx, s));
     case 'mis_citas':
     case 'cancelar_cita':
       return answered(await startAppointments(ctx, s));
     case 'recepcion':
       return { result: handOffToHuman(ctx, s), handoff: true };
     case 'saludo':
-      return answered(s.state === 'MENU' ? showMenu(s) : await reprompt(ctx, s));
+      return inFlow ? keepGoing() : answered(showMenu(s));
     case 'agradecimiento':
-      return answered(s.state === 'MENU' ? [M.anythingElse()] : await reprompt(ctx, s));
+      // Sin frase válida de la IA, el agradecimiento se contesta con el texto base.
+      return keepGoing(...(assist.briefOk ? [] : [M.youAreWelcome()]));
     case 'otro':
       if (inBooking && hasBookingInfo) return answered(await bookFromInterpretation(ctx, s, it));
-      // Pregunta general contestada por la frase breve: la plantilla vuelve a mostrar el paso actual.
-      return assist.briefOk ? answered(await reprompt(ctx, s)) : undefined;
+      // Pregunta general o comentario contestado por la frase breve.
+      return assist.briefOk ? keepGoing() : undefined;
     case 'confirmar':
     case 'negar':
-      return undefined; // crear o cancelar una cita exige el botón o el "sí" explícito
+      // Crear o cancelar una cita exige el botón o el "sí" explícito: en esos pasos deciden las reglas.
+      if (s.state === 'AGENDAR_CONFIRMAR' || s.state === 'CITAS_CONFIRMAR') return undefined;
+      return assist.briefOk ? keepGoing() : undefined;
   }
+}
+
+/**
+ * La IA dice que el paciente pidió algo que el centro no ofrece. Solo se le cree si la configuración no lo
+ * contradice: si las reglas encuentran en el mensaje una especialidad o un médico que sí existe, se ignora.
+ */
+function unavailableKind(ctx: EngineContext, incoming: Incoming, it: Interpretation): NoDisponible | undefined {
+  if (!it.noDisponible || incoming.type !== 'text' || it.especialidadId || it.medicoId) return undefined;
+  if (matchSpecialties(incoming.text, ctx.clinic.especialidades).length > 0) return undefined;
+  if (it.noDisponible === 'medico' && matchDoctors(incoming.text, ctx.clinic).length > 0) return undefined;
+  return it.noDisponible;
 }

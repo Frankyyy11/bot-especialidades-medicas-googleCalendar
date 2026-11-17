@@ -40,7 +40,7 @@ describe('petición a Gemini', () => {
     const schema = body.generationConfig.responseSchema;
     expect(schema.required).toEqual(['intent']);
     expect(schema.properties.intent.enum).toContain('agendar');
-    expect(Object.keys(schema.properties)).toEqual(['intent', 'especialidadId', 'medicoId', 'fecha', 'franja', 'hora', 'respuestaBreve']);
+    expect(Object.keys(schema.properties)).toEqual(['intent', 'especialidadId', 'medicoId', 'fecha', 'franja', 'hora', 'noDisponible', 'respuestaBreve']);
     expect(body.generationConfig.temperature).toBe(0);
   });
 
@@ -167,7 +167,7 @@ describe('Gemini integrado al bot (fetch simulado)', () => {
       const h = harnessWithFetch((async () => response()) as unknown as typeof fetch);
       await h.say('hola');
       const replies = await h.say('necesito ayuda con algo');
-      expect(allText(replies)).toContain('no logré entender');
+      expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
     }
   });
 });

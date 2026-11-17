@@ -130,7 +130,7 @@ describe('IA: validación, guardas y fallos', () => {
       const { h: h2 } = withAi(() => garbage);
       await h2.say('hola');
       const r = await h2.say('necesito ayuda con algo');
-      expect(allText(r), JSON.stringify(garbage)).toContain('no logré entender'); // comportamiento actual
+      expect(allText(r), JSON.stringify(garbage)).toContain('no estoy seguro de haberle entendido'); // comportamiento actual
     }
   });
 
@@ -163,7 +163,8 @@ describe('IA: validación, guardas y fallos', () => {
     await h.say('hola');
     const replies = await h.say('¿tienen parqueo para pacientes?');
     expect(textOf(replies[0]!)).toContain('recepción con gusto le ayuda');
-    expect(replies.some((r) => r.type === 'list')).toBe(true); // vuelve el menú
+    expect(lastButtons(replies).body).toContain('algo más'); // ofrece seguir, sin repetir el menú completo
+    expect(replies.some((r) => r.type === 'list')).toBe(false);
     expect((await h.sessions.get(PHONE))?.failures).toBe(0);
   });
 
@@ -172,7 +173,7 @@ describe('IA: validación, guardas y fallos', () => {
     const first = await h.say('hola');
     expect(allText(first)).not.toMatch(/inteligencia artificial/);
     const replies = await h.say('necesito ayuda con algo');
-    expect(allText(replies)).toContain('no logré entender');
+    expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
   });
 
   it('tiempo agotado: un reintento y caída silenciosa a reglas', async () => {
@@ -180,7 +181,7 @@ describe('IA: validación, guardas y fallos', () => {
     await h.say('hola');
     const replies = await h.say('necesito ayuda con algo');
     expect(ai.calls).toHaveLength(2); // intento + 1 reintento
-    expect(allText(replies)).toContain('no logré entender');
+    expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
     expect(allText(replies)).not.toMatch(/\berror\b|timeout|\bIA\b|inteligencia/);
   });
 
@@ -191,7 +192,7 @@ describe('IA: validación, guardas y fallos', () => {
     await transient.h.say('hola');
     const r1 = await transient.h.say('necesito ayuda con algo');
     expect(transient.ai.calls).toHaveLength(2);
-    expect(allText(r1)).toContain('no logré entender');
+    expect(allText(r1)).toContain('no estoy seguro de haberle entendido');
 
     const permanent = withAi(() => {
       throw new AiError('http', 'HTTP 403', false);

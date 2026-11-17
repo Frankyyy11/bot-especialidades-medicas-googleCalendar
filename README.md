@@ -66,7 +66,7 @@ npm run chat < test/fixtures/agendar-y-cancelar.txt
 AI_PROVIDER=fake CHAT_NOW=2026-11-16T10:00:00-06:00 npm run chat < test/fixtures/ia-simulador.txt   # con IA simulada
 ```
 
-El simulador usa la IA simulada (`fake`) por defecto; con `AI_PROVIDER=gemini` y la key en `.env` usa Gemini real, y con `AI_PROVIDER=none` solo reglas.
+El simulador usa la IA simulada (`fake`) si `AI_PROVIDER` no está definida; con `AI_PROVIDER=gemini` y la key en `.env` usa Gemini real, y con `AI_PROVIDER=none` solo reglas. El simulador también lee el `.env`: si ahí dice `AI_PROVIDER=none`, corre sin IA y lo avisa al arrancar. En PowerShell: `$env:AI_PROVIDER="fake"; npm run chat` (más detalle en `docs/IA.md`).
 
 ## Variables de entorno
 

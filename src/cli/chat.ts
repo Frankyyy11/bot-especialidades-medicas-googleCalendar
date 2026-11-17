@@ -1,7 +1,7 @@
 // Simulador de terminal: conversa con el motor usando la agenda en memoria.
 // No necesita WhatsApp ni Google. Uso: npm run chat
 // También acepta un guion por entrada estándar:  printf 'hola\n1\n' | npm run chat
-// IA: por defecto usa el proveedor simulado (AI_PROVIDER=fake). Con AI_PROVIDER=gemini y la key en .env usa Gemini real;
+// IA: si AI_PROVIDER no está definida (ni en el entorno ni en .env) usa el proveedor simulado (fake). Con AI_PROVIDER=gemini y la key en .env usa Gemini real;
 // con AI_PROVIDER=none funciona solo con reglas. CHAT_NOW=2026-11-16T10:00:00-06:00 fija el reloj (guiones reproducibles).
 
 import 'dotenv/config';
@@ -69,6 +69,10 @@ async function main(): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY);
   console.log(`Simulador de ${clinic.nombre} (agenda en memoria, IA: ${aiEnv.AI_PROVIDER}). Escriba un número para elegir una opción, o texto libre.`);
   console.log('Comandos: /salir para terminar.');
+  if (aiEnv.AI_PROVIDER === 'none') {
+    console.log('AVISO: la IA está apagada (AI_PROVIDER=none, probablemente en su .env): el bot responde solo con reglas.');
+    console.log('       Para probar la IA simulada:  PowerShell: $env:AI_PROVIDER="fake"; npm run chat   |   bash: AI_PROVIDER=fake npm run chat');
+  }
   if (interactive) process.stdout.write('\nUSTED> ');
 
   const rl = createInterface({ input: process.stdin });

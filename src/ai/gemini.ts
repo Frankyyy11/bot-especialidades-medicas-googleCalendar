@@ -6,7 +6,7 @@
 // Las funciones marcadas "verificar contra documentación oficial" están aisladas para ajustarlas fácil.
 
 import { parseInterpretation } from './guards.js';
-import { AI_INTENTS, AiError, type AiInput, type AiProvider, type Interpretation } from './provider.js';
+import { AI_INTENTS, NO_DISPONIBLE, AiError, type AiInput, type AiProvider, type Interpretation } from './provider.js';
 import { buildSystemInstruction, buildUserContent } from './prompt.js';
 
 // verificar contra documentación oficial: URL base y versión de la API
@@ -31,6 +31,7 @@ export function geminiResponseSchema(): Record<string, unknown> {
       fecha: { type: 'STRING', description: 'YYYY-MM-DD' },
       franja: { type: 'STRING', enum: ['manana', 'tarde'] },
       hora: { type: 'STRING', description: 'HH:mm en 24 horas' },
+      noDisponible: { type: 'STRING', enum: [...NO_DISPONIBLE], description: 'Solo si piden algo que no está en los datos del centro' },
       respuestaBreve: { type: 'STRING', description: 'Máximo 300 caracteres' },
     },
     required: ['intent'],

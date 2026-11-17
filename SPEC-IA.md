@@ -13,8 +13,10 @@ intent: agendar | servicios | horario_ubicacion | mis_citas | cancelar_cita | re
         | saludo | agradecimiento | pregunta_medica | urgencia | confirmar | negar | otro
 especialidadId?  medicoId?           (deben existir en la config; si no, se descartan)
 fecha? (YYYY-MM-DD)  franja? (manana | tarde)  hora? (HH:mm)
+noDisponible? (especialidad | medico | servicio)
 respuestaBreve?  (ver 2.2)
 ```
+- `noDisponible` es solo una señal de que el paciente pidió algo que no está en `config/centro.json`. El texto de la respuesta lo pone el código (`messages.ts`) con los datos reales del centro y nunca repite palabras de la IA. El código lo coteja antes de usarlo: si la interpretación trae un id válido, o si las reglas encuentran en el mensaje una especialidad o un médico que sí existe, la señal se descarta. No se acompaña de `respuestaBreve`.
 - Se valida con zod. Ids desconocidos, fechas pasadas o fuera de rango se descartan campo por campo.
 - El motor usa la interpretación como si el paciente hubiera elegido esas opciones, **saltando los pasos ya resueltos** (p. ej. "ocupo cita con cardiología el jueves en la tarde" → va directo a los horarios del jueves por la tarde). Si el día u hora pedidos no están libres, lo dice y ofrece los más cercanos, siempre desde la agenda real.
 - La creación y la cancelación de citas **siempre** requieren el paso de confirmación explícito actual (botón o "sí"); la IA no puede confirmarlas.
@@ -22,6 +24,7 @@ respuestaBreve?  (ver 2.2)
 
 ### 2.2 Redacción natural
 - La IA puede devolver `respuestaBreve`: una o dos frases cordiales (máx. 300 caracteres) que **acompañan** al mensaje con datos, que sigue saliendo de `messages.ts`. Sirve para acusar recibo, conectar con lo que dijo el paciente y contestar preguntas generales del centro (horario, ubicación, formas de pago, precios, qué especialidades hay) usando **solo** los datos del centro incluidos en el prompt.
+- **Conversación a mitad de un paso.** Cuando el paciente solo pregunta algo general, saluda, agradece o comenta (en cualquier estado salvo nombre y cédula), el mensaje que acompaña a la frase puede ser una **continuación corta** de `messages.ts` (una frase y un botón que retoma el paso actual) en lugar de repetir la lista completa. El estado y lo ya elegido se conservan. En los pasos de confirmación la frase nunca va junto al resumen: va con el botón que lo vuelve a mostrar.
 - Bloques que NUNCA redacta ni modifica la IA: urgencia (9-1-1), límite médico, aviso de privacidad, listas de horarios, resumen de cita, confirmación y cancelación.
 - **Guardas sobre `respuestaBreve`** (si falla cualquiera, se descarta y se usa solo la plantilla):
   1. Todo número que contenga (horas, precios, teléfonos, fechas) debe aparecer en los datos del centro o en el mensaje determinista que acompaña.
@@ -36,7 +39,7 @@ respuestaBreve?  (ver 2.2)
 4. Límite médico por reglas → respuesta fija; la IA no se llama.
 5. Solo si lo anterior no resolvió el mensaje: IA.
 6. Si la IA clasifica `urgencia` o `pregunta_medica`, se responde con las **mismas respuestas fijas**. La IA solo puede aumentar la cautela, nunca reducirla.
-7. Sin interpretación útil → comportamiento actual de "no entendido" (segundo fallo → recepción).
+7. Sin interpretación útil → comportamiento actual de "no entendido" (segundo fallo → recepción). Una respuesta conversacional válida (frase que pasa las guardas, o el texto de "no se ofrece") **no cuenta como fallo** y reinicia ese conteo; una frase descartada por las guardas sí cuenta.
 
 ## 4. Privacidad
 - A la IA se envía solo el texto del mensaje actual, un máximo de 6 turnos recientes de esa sesión y los datos públicos del centro. **Nunca** teléfono, nombre, cédula ni datos de citas.

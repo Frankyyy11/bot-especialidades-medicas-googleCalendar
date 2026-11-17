@@ -5,7 +5,7 @@
 import type { Clinic, Doctor, Specialty } from '../config/clinic.js';
 import type { Appointment } from '../agenda/provider.js';
 import { formatDateLong, formatDateShort, formatTime12 } from '../util/dates.js';
-import type { ButtonOption, ListRow, Outgoing } from './types.js';
+import type { ButtonOption, ListRow, Outgoing, State } from './types.js';
 
 // --- Ids de botones y filas (los usan los flujos para reconocer toques) ----
 
@@ -22,6 +22,8 @@ export const ID = {
   serv: { agendar: 'serv:agendar', otras: 'serv:otras' },
   cita: (id: string) => `cita:${id}`,
   citas: { si: 'citas:si', no: 'citas:no' },
+  /** Retoma el paso actual (vuelve a mostrar su lista o resumen) tras una respuesta conversacional. */
+  continuar: 'cont:paso',
 } as const;
 
 // --- Botones reutilizables --------------------------------------------------
@@ -36,6 +38,37 @@ const BTN = {
 
 const text = (body: string): Outgoing => ({ type: 'text', body });
 const buttons = (body: string, ...list: ButtonOption[]): Outgoing => ({ type: 'buttons', body, buttons: list });
+
+// --- Continuación suave ------------------------------------------------------
+// Tras contestar una pregunta o un comentario a mitad de un paso no se repite la lista completa:
+// se ofrece retomarlo con un botón. El paciente también puede escribir su respuesta directamente.
+
+const CONTINUE_STEP: Partial<Record<State, { body: string; title: string }>> = {
+  AGENDAR_ESPECIALIDAD: { body: 'Cuando guste, seguimos con su cita. Puede escribirme la especialidad o verlas de nuevo.', title: 'Ver especialidades' },
+  AGENDAR_MEDICO: { body: 'Cuando guste, seguimos con su cita. Puede escribirme el médico de su preferencia o ver la lista de nuevo.', title: 'Ver médicos' },
+  AGENDAR_DIA: { body: 'Cuando guste, seguimos con su cita. Puede indicarme el día o ver de nuevo los disponibles.', title: 'Ver días' },
+  AGENDAR_HORA: { body: 'Cuando guste, seguimos con su cita. Puede indicarme la hora o ver de nuevo los horarios.', title: 'Ver horarios' },
+  AGENDAR_CONFIRMAR: { body: 'Su cita todavía no ha sido registrada. Cuando guste, puede revisar el resumen para decidir.', title: 'Ver resumen' },
+  SERVICIOS_LISTA: { body: 'Cuando guste, puede ver de nuevo nuestras especialidades.', title: 'Ver especialidades' },
+  SERVICIOS_DETALLE: { body: 'Cuando guste, puede volver al detalle de la especialidad.', title: 'Ver detalle' },
+  CITAS_LISTA: { body: 'Cuando guste, puede ver de nuevo sus citas.', title: 'Ver mis citas' },
+  CITAS_CONFIRMAR: { body: 'Su cita se mantiene sin cambios por ahora. Cuando guste, puede retomar este paso.', title: 'Continuar' },
+};
+
+/** "A, B y C" (o "..., entre otras opciones" si la lista no cabe con holgura en un mensaje de WhatsApp). */
+function joinNames(names: readonly string[], maxChars = 600): string {
+  const kept: string[] = [];
+  let length = 0;
+  for (const name of names) {
+    if (length + name.length > maxChars) break;
+    kept.push(name);
+    length += name.length + 2;
+  }
+  if (kept.length < names.length) return `${kept.join(', ')}, entre otras opciones`;
+  if (kept.length <= 1) return kept.join('');
+  const last = kept[kept.length - 1] as string;
+  return `${kept.slice(0, -1).join(', ')} ${/^h?i/i.test(last) ? 'e' : 'y'} ${last}`;
+}
 
 // --- Formato de citas -------------------------------------------------------
 
@@ -89,7 +122,27 @@ export const M = {
       BTN.verMenu,
       BTN.recepcion,
     ),
-  notUnderstood: (): Outgoing => text('Disculpe, no logré entender su mensaje. Por favor elija una de las opciones.'),
+  notUnderstood: (): Outgoing => text('Disculpe, no estoy seguro de haberle entendido. ¿Me ayuda eligiendo una de estas opciones?'),
+
+  // Conversación a mitad de un paso (sin repetir la lista completa)
+  continueStep: (state: State): Outgoing => {
+    const step = CONTINUE_STEP[state];
+    return step ? buttons(step.body, { id: ID.continuar, title: step.title }, BTN.menu) : M.anythingElse();
+  },
+  youAreWelcome: (): Outgoing => text('Con mucho gusto.'),
+  /** Preguntaron por algo que el centro no tiene. Todo el texto sale de la configuración, nunca de la IA. */
+  notOffered: (p: { clinic: Clinic; kind: 'especialidad' | 'medico' | 'servicio'; state: State; spec?: Specialty | undefined }): Outgoing => {
+    const specialties = joinNames(p.clinic.especialidades.map((e) => e.nombre));
+    let body: string;
+    if (p.kind === 'especialidad') body = `Por el momento no contamos con esa especialidad. Sí ofrecemos: ${specialties}.`;
+    else if (p.kind === 'servicio') body = `Por el momento no ofrecemos ese servicio. Contamos con consulta en: ${specialties}.`;
+    else if (p.spec) body = `No encontré a ese médico en nuestro centro. En ${p.spec.nombre} atienden: ${joinNames(p.spec.medicos.map((m) => m.nombre))}.`;
+    else body = `No encontré a ese médico en nuestro centro. Contamos con médicos en: ${specialties}.`;
+    const step = CONTINUE_STEP[p.state];
+    return step
+      ? buttons(`${body}\n\n${step.body}`, { id: ID.continuar, title: step.title }, BTN.menu)
+      : buttons(body, { id: ID.menu.servicios, title: 'Ver especialidades' }, BTN.agendar);
+  },
   offerHuman: (): Outgoing =>
     buttons('Disculpe, sigo sin entender su mensaje. ¿Desea que le atienda una persona de recepción?', BTN.recepcion, BTN.verMenu),
   genericError: (): Outgoing =>

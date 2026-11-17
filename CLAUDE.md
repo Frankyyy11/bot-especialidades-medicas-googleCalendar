@@ -55,6 +55,8 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 13. **Fallos silenciosos.** Tiempo agotado, HTTP, JSON inválido, bloqueo o cuota: un reintento como máximo y luego solo reglas; el paciente nunca ve errores técnicos. Las pruebas usan IA simulada o `fetch` simulado, jamás red.
 14. **`GEMINI_MODEL` es obligatoria** con `AI_PROVIDER=gemini` y no tiene valor por defecto. La key nunca va en el repo ni en la URL (encabezado `x-goog-api-key`).
 15. Todo texto nuevo para el paciente sigue yendo en `messages.ts`; las frases de la IA son un añadido que antecede a esos mensajes, no los reemplaza.
+16. **`noDisponible` es una señal, no un dato.** Cuando la IA indica que piden algo que el centro no ofrece, el texto sale de `M.notOffered` con datos de la config y nunca repite palabras de la IA; el motor ignora la señal si las reglas encuentran en el mensaje una especialidad o médico que sí existe (`unavailableKind` en `assist.ts`).
+17. **Conversación a mitad de un paso.** Una respuesta conversacional (frase válida + `M.continueStep`, botón `cont:paso`) no cambia el estado, no repite la lista y no cuenta como fallo. En `AGENDAR_CONFIRMAR` y `CITAS_CONFIRMAR` la frase nunca va junto al resumen, y `confirmar`/`negar` de la IA se ignoran ahí.
 
 ## Convenciones
 

@@ -8,7 +8,7 @@ import { findDoctor, findSpecialty } from '../config/clinic.js';
 import { isMedicalQuestion, isUrgent, normalize } from '../engine/intents.js';
 import type { Outgoing } from '../engine/types.js';
 import { addDays, DATE_RE, TIME_RE } from '../util/dates.js';
-import { AI_INTENTS, type Interpretation } from './provider.js';
+import { AI_INTENTS, NO_DISPONIBLE, type Interpretation } from './provider.js';
 
 export const MAX_BRIEF_CHARS = 300;
 
@@ -24,6 +24,7 @@ const rawSchema = z.object({
   fecha: optionalField(z.string().regex(DATE_RE)),
   franja: optionalField(z.enum(['manana', 'tarde'])),
   hora: optionalField(z.string().regex(TIME_RE)),
+  noDisponible: optionalField(z.enum(NO_DISPONIBLE)),
   respuestaBreve: optionalField(z.string().max(2000)),
 });
 
@@ -32,12 +33,13 @@ export function parseInterpretation(raw: unknown): Interpretation | null {
   const result = rawSchema.safeParse(raw);
   if (!result.success) return null;
   const out: Interpretation = { intent: result.data.intent };
-  const { especialidadId, medicoId, fecha, franja, hora, respuestaBreve } = result.data;
+  const { especialidadId, medicoId, fecha, franja, hora, noDisponible, respuestaBreve } = result.data;
   if (especialidadId) out.especialidadId = especialidadId;
   if (medicoId) out.medicoId = medicoId;
   if (fecha) out.fecha = fecha;
   if (franja) out.franja = franja;
   if (hora) out.hora = hora;
+  if (noDisponible) out.noDisponible = noDisponible;
   if (respuestaBreve) out.respuestaBreve = respuestaBreve;
   return out;
 }
@@ -74,6 +76,8 @@ export function constrainInterpretation(it: Interpretation, ctx: ConstraintConte
   }
   if (it.franja === 'manana' || it.franja === 'tarde') out.franja = it.franja;
   if (it.hora && TIME_RE.test(it.hora)) out.hora = it.hora;
+  // Si la IA dio un id válido, lo pedido sí existe: la señal de "no disponible" se contradice y se descarta.
+  if (it.noDisponible && NO_DISPONIBLE.includes(it.noDisponible) && !especialidadId && !medicoId) out.noDisponible = it.noDisponible;
   if (it.respuestaBreve) out.respuestaBreve = it.respuestaBreve;
   return out;
 }

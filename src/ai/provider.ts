@@ -23,6 +23,10 @@ export type AiIntent = (typeof AI_INTENTS)[number];
 
 export type Franja = 'manana' | 'tarde';
 
+/** Lo que el paciente pidió y el centro no ofrece. Es solo una señal: el texto lo pone el código (messages.ts). */
+export const NO_DISPONIBLE = ['especialidad', 'medico', 'servicio'] as const;
+export type NoDisponible = (typeof NO_DISPONIBLE)[number];
+
 /** Interpretación estructurada de un texto libre. Todo campo opcional puede faltar. */
 export interface Interpretation {
   intent: AiIntent;
@@ -33,6 +37,11 @@ export interface Interpretation {
   franja?: Franja;
   /** HH:mm (24 h). */
   hora?: string;
+  /**
+   * El paciente preguntó por una especialidad, médico o servicio que NO está en los datos del centro.
+   * El motor lo coteja con la configuración antes de usarlo y nunca repite palabras de la IA.
+   */
+  noDisponible?: NoDisponible;
   /** Una o dos frases cordiales (máx. 300 caracteres). Pasa por las guardas antes de mostrarse. */
   respuestaBreve?: string;
 }
