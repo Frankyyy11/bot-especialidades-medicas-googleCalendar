@@ -23,7 +23,7 @@ const showJsonLogs = process.env.CHAT_LOGS === '1';
 const dim = (line: string): string => (process.stdout.isTTY ? `\x1b[2m${line}\x1b[0m` : line);
 const AI_STATUS: Record<string, (f: Record<string, unknown>) => string> = {
   ia_usada: (f) => `IA: respondió (${String(f.intent)}, ${String(f.ms)} ms)`,
-  ia_local: (f) => `Entendido por reglas locales, sin esperar a la IA (${String(f.intent)}, ${String(f.ms)} ms)`,
+  ia_local: (f) => `Entendido por reglas locales (${String(f.intent)}, ${String(f.ms)} ms)`,
   ia_fallo: (f) => `IA: falló (${String(f.tipo)}, ${String(f.ms)} ms); se sigue con reglas`,
   ia_descartada: (f) => `IA: sin interpretación útil (${String(f.ms)} ms)`,
   ia_respuesta_descartada: (f) => `IA: frase descartada por las guardas (${String(f.motivo)})`,

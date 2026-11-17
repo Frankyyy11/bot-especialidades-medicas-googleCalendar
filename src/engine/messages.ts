@@ -252,7 +252,7 @@ export const M = {
   requestedDayUnavailable: (date: string): Outgoing =>
     text(`Lo sentimos, para el ${formatDateLong(date)} no hay espacios disponibles. Estos son los días más cercanos con espacios.`),
   requestedTimeUnavailable: (date: string, time: string): Outgoing =>
-    text(`Lo sentimos, el ${formatDateLong(date)} no hay espacio ${hourPhrase(time)}. Estos son los horarios disponibles más cercanos.`),
+    text(`Lo sentimos, el ${formatDateLong(date)} no hay espacio ${hourPhrase(time)}; estos son los horarios disponibles más cercanos.`),
   requestedFranjaUnavailable: (date: string, franja: 'manana' | 'tarde'): Outgoing =>
     text(`Lo sentimos, para el ${formatDateLong(date)} no quedan espacios ${franja === 'manana' ? 'por la mañana' : 'por la tarde'}. Estos son los horarios disponibles ese día.`),
   dayFull: (): Outgoing => text('Lo sentimos, ese día ya no tiene espacios disponibles.'),

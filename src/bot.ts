@@ -174,7 +174,7 @@ export class Bot {
     }
 
     // 2) IA remota (con tope diario). Si falla o tarda, se usa lo que haya entendido el intérprete local.
-    const localFallback = (): Consulted | undefined => (local && local.intent !== 'otro' ? finish(local, 'local') : undefined);
+    const localFallback = (): Consulted | undefined => (local && (local.intent !== 'otro' || local.noDisponible) ? finish(local, 'local') : undefined);
     if (!this.budget.tryConsume(phone)) {
       logger.info('ia_tope_diario', { phone });
       return localFallback();
