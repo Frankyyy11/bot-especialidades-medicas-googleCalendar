@@ -118,10 +118,12 @@ export class FakeAiProvider implements AiProvider {
         ...(spec ? { especialidadId: spec.id, respuestaBreve: `Con gusto. La consulta de ${spec.nombre} cuesta ${spec.precio}.` } : {}),
       };
     }
-    if (menu === 'horario') {
+    const asksPayment = /\b(pago|pagos|pagar|tarjeta|sinpe|efectivo)\b/.test(norm);
+    const asksWhere = /\b(donde|direccion|ubicacion|queda)\b/.test(norm);
+    if (menu === 'horario' || asksPayment || asksWhere) {
       let respuestaBreve = 'Con gusto le comparto esa información.';
-      if (/\b(pago|pagos|pagar|tarjeta|sinpe|efectivo)\b/.test(norm)) respuestaBreve = `Aceptamos: ${clinic.formasPago.join(', ')}.`;
-      else if (/\b(donde|direccion|ubicacion|queda)\b/.test(norm)) respuestaBreve = `Estamos en ${clinic.direccion}.`;
+      if (asksPayment) respuestaBreve = `Aceptamos: ${clinic.formasPago.join(', ')}.`;
+      else if (asksWhere) respuestaBreve = `Estamos en ${clinic.direccion}.`;
       return { intent: 'horario_ubicacion', respuestaBreve };
     }
     if (hasBookingInfo) return booking; // p. ej. "mejor el viernes en la tarde" dentro del flujo

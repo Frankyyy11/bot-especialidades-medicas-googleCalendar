@@ -1,12 +1,16 @@
 // Simulador de terminal: conversa con el motor usando la agenda en memoria.
 // No necesita WhatsApp ni Google. Uso: npm run chat
 // También acepta un guion por entrada estándar:  printf 'hola\n1\n' | npm run chat
+// IA: por defecto usa el proveedor simulado (AI_PROVIDER=fake). Con AI_PROVIDER=gemini y la key en .env usa Gemini real;
+// con AI_PROVIDER=none funciona solo con reglas. CHAT_NOW=2026-11-16T10:00:00-06:00 fija el reloj (guiones reproducibles).
 
 import 'dotenv/config';
 import { createInterface } from 'node:readline';
 import { MemoryAgendaProvider } from '../agenda/memory.js';
+import { createAiProvider } from '../ai/index.js';
 import { Bot } from '../bot.js';
 import { loadClinic } from '../config/clinic.js';
+import { loadEnv } from '../env.js';
 import type { Outgoing } from '../engine/types.js';
 import { MemoryHumanPauseStore, MemorySessionStore } from '../sessions/store.js';
 import { fitOutgoing } from '../whatsapp/limits.js';
@@ -19,9 +23,20 @@ const clinic = loadClinic(process.env.CLINIC_CONFIG_PATH ?? 'config/centro.json'
 const confirmationMode = process.env.CONFIRMATION_MODE === 'auto' ? 'auto' : 'recepcion';
 const humanPauseMinutes = Number(process.env.HUMAN_PAUSE_MINUTES ?? 120);
 
+// El simulador usa IA simulada por defecto; solo se toman de aquí las variables de la capa de IA.
+const aiEnv = loadEnv({ ...process.env, AI_PROVIDER: process.env.AI_PROVIDER ?? 'fake' });
+const aiProvider = createAiProvider(aiEnv);
+const fixedNow = process.env.CHAT_NOW ? new Date(process.env.CHAT_NOW) : undefined;
+if (fixedNow && Number.isNaN(fixedNow.getTime())) throw new Error('CHAT_NOW no es una fecha válida (use p. ej. 2026-11-16T10:00:00-06:00)');
+const now = fixedNow ? () => fixedNow : () => new Date();
+
 const bot = new Bot({
   clinic,
-  agenda: new MemoryAgendaProvider({ clinic, confirmationMode }),
+  now,
+  ...(aiProvider
+    ? { ai: { provider: aiProvider, timeoutMs: aiEnv.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: aiEnv.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
+    : {}),
+  agenda: new MemoryAgendaProvider({ clinic, confirmationMode, now }),
   sessions: new MemorySessionStore(Number(process.env.SESSION_TTL_MINUTES ?? 30) * 60_000),
   pauses: new MemoryHumanPauseStore(),
   humanPauseMinutes,
@@ -52,7 +67,7 @@ function render(raw: Outgoing[]): void {
 
 async function main(): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY);
-  console.log(`Simulador de ${clinic.nombre} (agenda en memoria). Escriba un número para elegir una opción, o texto libre.`);
+  console.log(`Simulador de ${clinic.nombre} (agenda en memoria, IA: ${aiEnv.AI_PROVIDER}). Escriba un número para elegir una opción, o texto libre.`);
   console.log('Comandos: /salir para terminar.');
   if (interactive) process.stdout.write('\nUSTED> ');
 

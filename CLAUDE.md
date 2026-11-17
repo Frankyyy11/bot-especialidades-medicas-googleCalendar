@@ -4,7 +4,7 @@ Contexto para continuar este proyecto con Claude Code. Léalo completo antes de 
 
 ## Qué es
 
-Bot de atención al cliente por WhatsApp (Cloud API oficial, modo coexistencia) para un centro médico de especialidades en Costa Rica. Solo **agendar** y **consultar servicios**. Sin LLM: menús, botones/listas y palabras clave. Agenda provisional en Google Calendar detrás de `AgendaProvider`; se cambiará a Siku (`docs/SIKU.md`).
+Bot de atención al cliente por WhatsApp (Cloud API oficial, modo coexistencia) para un centro médico de especialidades en Costa Rica. Solo **agendar** y **consultar servicios**. Base por reglas: menús, botones/listas y palabras clave. Encima hay una **capa de IA opcional** (Gemini por REST, `SPEC-IA.md`, `docs/IA.md`) que solo interpreta texto libre y redacta una frase breve; con `AI_PROVIDER=none` (por defecto) o si falla, el bot funciona solo con reglas. Agenda provisional en Google Calendar detrás de `AgendaProvider`; se cambiará a Siku (`docs/SIKU.md`).
 
 Persona que lo mantiene: estudiante de informática que trabaja en terminal. Prefiera comandos de terminal, explique el concepto antes de la sintaxis y proponga cambios por pasos pequeños.
 
@@ -12,7 +12,7 @@ Persona que lo mantiene: estudiante de informática que trabaja en terminal. Pre
 
 ```bash
 npm install
-npm run chat        # simulador en terminal (agenda en memoria, sin credenciales)
+npm run chat        # simulador en terminal (agenda en memoria, IA simulada `fake`, sin credenciales)
 npm test            # vitest (debe quedar en verde)
 npm run typecheck   # tsc --noEmit (incluye pruebas)
 npm run build       # compila src/ a dist/
@@ -28,8 +28,10 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 - `src/engine/intents.ts`: normalización y palabras clave (urgencias, límite médico, intenciones, especialidades).
 - `src/engine/messages.ts`: **todos** los textos y los ids de botones/filas.
 - `src/agenda/`: `provider.ts` (interfaz y errores), `slots.ts` (cálculo puro), `googleCalendar.ts`, `memory.ts`, `siku.ts`.
+- `src/ai/`: capa de IA. `provider.ts` (interfaz, tipos, `AiError`), `guards.ts` (validación zod, guardas de `respuestaBreve`), `prompt.ts` (instrucción de sistema y contexto; el texto del paciente es dato), `gemini.ts` (REST con `fetch`, sin SDK), `fake.ts` (proveedor simulado y `ScriptedAiProvider` para pruebas), `safe.ts` (tiempo máximo + un reintento), `budget.ts` (tope diario por teléfono).
+- `src/engine/states/assist.ts`: usa la interpretación ya validada dentro del motor (`planAi`, `applyAssist`). El motor **no importa** `src/ai/gemini.ts` ni hace red.
 - `src/whatsapp/`: `webhook.ts`, `parser.ts`, `client.ts`, `limits.ts`.
-- `src/bot.ts`: orquesta (límite de tasa, pausa humana, sesión, motor). Lo usan el webhook y el simulador.
+- `src/bot.ts`: orquesta (límite de tasa, pausa humana, sesión, motor y la llamada asíncrona a la IA con sus guardas finales). Lo usan el webhook y el simulador.
 - `src/sessions/store.ts`: `SessionStore` y `HumanPauseStore` (memoria; pensados para cambiarse a Redis).
 - `config/centro.json`: datos del centro (los de ejemplo son ficticios).
 
@@ -43,6 +45,16 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 6. **No agregar el paquete `googleapis`** (pesado); la API de Calendar se usa por `fetch` + `google-auth-library`. Sin dependencias nativas.
 7. **El bot solo responde a mensajes entrantes.** No enviar plantillas ni iniciar conversaciones.
 8. Agenda en Google: el título lleva `[POR CONFIRMAR]` en `CONFIRMATION_MODE=recepcion`, porque la agenda real vive en Siku y recepción debe validar para evitar choques.
+
+### Reglas de la capa de IA (también obligatorias)
+
+9. **La IA entiende y redacta; el código decide.** Nunca consulta disponibilidad, crea ni cancela citas, ni es fuente de datos: todo dato que ve el paciente sale de `config/centro.json` o de `AgendaProvider`. Crear/cancelar exige siempre el paso de confirmación explícito (botón o "sí"); la IA no puede confirmarlo.
+10. **Orden de seguridad.** Urgencias y límite médico se evalúan por reglas ANTES de la IA (`planAi` devuelve `skip`). Si la IA clasifica `urgencia` o `pregunta_medica`, se usan las mismas respuestas fijas: la IA solo puede aumentar la cautela. No relajar `URGENCY_PATTERNS` ni `MEDICAL_PATTERNS`.
+11. **Todo lo que sale de la IA no es confiable.** Se valida con zod y se descarta campo por campo (`validateInterpretation`); `respuestaBreve` pasa por `guardBrief` (números solo si están en los datos del centro o en el mensaje del código, sin contenido clínico, sin promesas, ≤300 caracteres, sin enlaces ni emojis) y nunca acompaña urgencia, límite médico, resumen, confirmación ni cancelación. Si se amplían las listas prohibidas, agregar pruebas.
+12. **Privacidad con la IA.** Solo se envía el texto del mensaje actual (sin números largos), ≤6 turnos de historial y datos públicos del centro. Nunca teléfono, nombre, cédula ni datos de citas. No se llama en `AGENDAR_NOMBRE` ni `AGENDAR_CEDULA`. No registrar prompts ni respuestas en logs (solo eventos y latencia).
+13. **Fallos silenciosos.** Tiempo agotado, HTTP, JSON inválido, bloqueo o cuota: un reintento como máximo y luego solo reglas; el paciente nunca ve errores técnicos. Las pruebas usan IA simulada o `fetch` simulado, jamás red.
+14. **`GEMINI_MODEL` es obligatoria** con `AI_PROVIDER=gemini` y no tiene valor por defecto. La key nunca va en el repo ni en la URL (encabezado `x-goog-api-key`).
+15. Todo texto nuevo para el paciente sigue yendo en `messages.ts`; las frases de la IA son un añadido que antecede a esos mensajes, no los reemplaza.
 
 ## Convenciones
 
@@ -58,4 +70,5 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 - Formato del evento de eco de coexistencia (`smb_message_echoes`): aislado en `parseEchoRecipients` (`src/whatsapp/parser.ts`).
 - Versión vigente de Graph API (`WHATSAPP_API_VERSION`, valor por defecto de ejemplo).
 - Requisitos de coexistencia en Costa Rica (`docs/WHATSAPP.md`).
+- **Gemini (`src/ai/gemini.ts`): nunca se probó contra el servicio real.** Verificar ruta `v1beta/models/{modelo}:generateContent`, encabezado `x-goog-api-key`, `systemInstruction`, `generationConfig` (`responseMimeType`, `responseSchema` con tipos en mayúscula), formato de la respuesta y que el modelo elegido admita salida estructurada (`docs/IA.md`).
 - Autenticación real con cuenta de servicio de Google: la función `createServiceAccountTokenProvider` usa `google-auth-library`, pero las pruebas la sustituyen por un token falso (no se probó contra Google real).

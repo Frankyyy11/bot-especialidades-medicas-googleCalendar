@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider, ScriptedAiProvider } from '../src/ai/fake.js';
 import { buildSystemInstruction, buildUserContent } from '../src/ai/prompt.js';
@@ -406,5 +408,25 @@ describe('IA: sin cambios de comportamiento cuando está apagada', () => {
   it('tipado: Interpretation acepta solo intents conocidos', () => {
     const it: Interpretation = { intent: 'saludo' };
     expect(it.intent).toBe('saludo');
+  });
+});
+
+describe('simulador con IA simulada (guion de test/fixtures)', () => {
+  it('ejecuta el guion completo de forma no interactiva', () => {
+    const script = readFileSync('test/fixtures/ia-simulador.txt', 'utf8');
+    const output = execFileSync(process.execPath, ['--import', 'tsx', 'src/cli/chat.ts'], {
+      input: script,
+      encoding: 'utf8',
+      env: { ...process.env, AI_PROVIDER: 'fake', CHAT_NOW: '2026-11-16T10:00:00-06:00', LOG_LEVEL: 'error' },
+      timeout: 30_000,
+    });
+    expect(output).toContain('IA: fake');
+    expect(output).toContain('inteligencia artificial'); // aviso de privacidad con IA activa
+    expect(output).toContain('Aceptamos: Efectivo, Tarjeta de crédito o débito, SINPE Móvil.'); // pregunta general, con datos del centro
+    expect(output).toContain('por la tarde'); // frase libre que salta pasos
+    expect(output).toContain('no puedo dar diagnósticos'); // pregunta médica: respuesta fija
+    expect(output).toContain('*9-1-1*'); // urgencia: respuesta fija
+    const botLines = output.split('\n').filter((l) => !l.startsWith('USTED>')).join('\n'); // sin el eco de lo que escribe el paciente
+    expect(botLines).not.toMatch(/gratis|está confirmada|ya agend/i); // la inyección no tuvo efecto
   });
 });

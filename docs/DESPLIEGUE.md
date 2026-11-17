@@ -50,6 +50,8 @@ El cuerpo del webhook se lee crudo para validar la firma: el proxy no debe modif
 
 Las mismas de `.env.example`. En producción defina como mínimo `AGENDA_PROVIDER=google`, las credenciales de Google y las cuatro `WHATSAPP_*`. Si falta alguna `WHATSAPP_*` el servidor arranca pero el webhook responde 503 (y lo avisa en el log): revise los logs al desplegar.
 
+La capa de IA es opcional (`AI_PROVIDER=none` por defecto). Para activarla con pacientes reales vea `docs/IA.md`: use `AI_PROVIDER=gemini` con `GEMINI_API_KEY` y `GEMINI_MODEL` (obligatoria) de un proyecto con **facturación habilitada**, guarde la key como secreto del host (no en el repositorio ni en la imagen) y recuerde que las sesiones y el tope diario de llamadas viven en memoria de un solo proceso.
+
 ## Logs
 
 JSON por línea en stdout/stderr, con teléfonos enmascarados (`****1234`). No incluyen nombres, cédulas ni el texto de los mensajes. Mantenga `LOG_LEVEL=info`.

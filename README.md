@@ -2,7 +2,7 @@
 
 Bot de atención al cliente por WhatsApp (Cloud API oficial de Meta, en **modo coexistencia**) para un centro médico de especialidades en Costa Rica. Atiende solo dos cosas: **agendar citas** y **consultar servicios** (especialidades, precios, horario y ubicación).
 
-- Sin modelos de lenguaje: funciona con menús, botones y listas de WhatsApp, más detección de intención por palabras clave.
+- Funciona con menús, botones y listas de WhatsApp, más detección de intención por palabras clave. Opcionalmente (`AI_PROVIDER=gemini`) una **capa de IA** entiende texto libre y suena más natural, sin decidir nada: disponibilidad y citas siguen en el código (ver `docs/IA.md`). Con la IA apagada (valor por defecto) el bot funciona solo con reglas.
 - Todo el texto al paciente va en español de Costa Rica, con trato de "usted".
 - La agenda es **provisional en Google Calendar**, detrás de la interfaz `AgendaProvider`, porque más adelante se cambiará a Siku (ver `docs/SIKU.md`).
 
@@ -21,7 +21,8 @@ Meta Cloud API ──POST /webhook──► whatsapp/webhook.ts   valida firma, 
                                         │                 y detecta ecos de recepción (coexistencia)
                                         ▼
                                      bot.ts              límite de tasa → pausa humana → sesión → motor
-                                        │
+                                        │                    (IA opcional: ai/ interpreta texto libre; solo
+                                        │                     si las reglas no resuelven; ver docs/IA.md)
                   ┌─────────────────────┼─────────────────────┐
                   ▼                     ▼                     ▼
           sessions/store.ts      engine/engine.ts       agenda/provider.ts  (AgendaProvider)
@@ -62,7 +63,10 @@ AGENDA_PROVIDER=memory npm run dev
 
 ```bash
 npm run chat < test/fixtures/agendar-y-cancelar.txt
+AI_PROVIDER=fake CHAT_NOW=2026-11-16T10:00:00-06:00 npm run chat < test/fixtures/ia-simulador.txt   # con IA simulada
 ```
+
+El simulador usa la IA simulada (`fake`) por defecto; con `AI_PROVIDER=gemini` y la key en `.env` usa Gemini real, y con `AI_PROVIDER=none` solo reglas.
 
 ## Variables de entorno
 
@@ -78,6 +82,11 @@ Detalle comentado en `.env.example`. Resumen:
 | `WHATSAPP_ACCESS_TOKEN` | – | Token permanente de la API |
 | `WHATSAPP_PHONE_NUMBER_ID` | – | Id del número en Meta |
 | `WHATSAPP_API_VERSION` | `v23.0` | Versión de Graph API. Es un valor de partida: **revise cuál es la vigente** |
+| `AI_PROVIDER` | `none` | Capa de IA: `none`, `gemini` o `fake` (ver `docs/IA.md`) |
+| `GEMINI_API_KEY` | – | Key de la API de Gemini (solo con `gemini`; nunca en el repo) |
+| `GEMINI_MODEL` | – | **Obligatoria** con `gemini`, sin valor por defecto (los modelos cambian seguido) |
+| `AI_TIMEOUT_MS` | `6000` | Tiempo máximo por intento de llamada a la IA |
+| `AI_MAX_CALLS_PER_PHONE_PER_DAY` | `40` | Tope diario de llamadas a la IA por teléfono |
 | `HUMAN_PAUSE_MINUTES` | `120` | Pausa del bot cuando recepción atiende a mano |
 | `SESSION_TTL_MINUTES` | `30` | Inactividad tras la cual se descarta la conversación |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Mensajes por minuto por teléfono |
@@ -105,6 +114,7 @@ Reglas que no se negocian:
 - **Límite médico**: nunca da diagnósticos, interpreta síntomas, ni habla de medicación o recomendaciones clínicas. Ante esas preguntas ofrece agendar o recepción. Tampoco pregunta el motivo de consulta.
 - **Urgencias**: ante palabras como "emergencia" o "dolor de pecho" indica que el canal no atiende emergencias, que llame al 9-1-1, y pasa a recepción.
 - **Privacidad**: solo recoge nombre y teléfono (cédula si `pedirCedula`). Los logs enmascaran teléfonos y no incluyen nombres, cédulas ni el texto de los mensajes.
+- **IA (si está activa)**: nunca decide ni da datos; no recibe teléfono, nombre, cédula ni datos de citas; no se llama en los pasos de nombre y cédula. En el nivel gratuito de Gemini Google puede usar los mensajes para mejorar sus productos: con pacientes reales use un proyecto con facturación habilitada (ver `docs/IA.md`).
 
 Límites conocidos:
 
@@ -120,6 +130,7 @@ Límites conocidos:
 src/engine/       motor, intenciones, messages.ts (todos los textos) y states/ (un archivo por flujo)
 src/agenda/       AgendaProvider, slots (función pura), Google Calendar, memoria, Siku
 src/whatsapp/     webhook, parser, cliente, límites de WhatsApp
+src/ai/           capa de IA opcional: interfaz, guardas, prompt, Gemini (fetch), proveedor simulado
 src/sessions/     SessionStore y pausa humana
 src/cli/chat.ts   simulador
 config/centro.json
@@ -127,4 +138,4 @@ docs/             guías de Google Calendar, WhatsApp, despliegue y Siku
 test/             pruebas
 ```
 
-Más documentación: `docs/GOOGLE_CALENDAR.md`, `docs/WHATSAPP.md`, `docs/DESPLIEGUE.md`, `docs/SIKU.md` y `CLAUDE.md` (guía para continuar con Claude Code).
+Más documentación: `docs/IA.md`, `docs/GOOGLE_CALENDAR.md`, `docs/WHATSAPP.md`, `docs/DESPLIEGUE.md`, `docs/SIKU.md` y `CLAUDE.md` (guía para continuar con Claude Code).
