@@ -53,11 +53,14 @@ export function describeAppointment(a: Pick<Appointment, 'date' | 'time'>, speci
 
 export const M = {
   // Bienvenida y menú
-  greeting: (clinic: Clinic): Outgoing =>
+  greeting: (clinic: Clinic, aiActive = false): Outgoing =>
     text(
       `¡Hola! Bienvenido(a) a *${clinic.nombre}*. Soy el asistente virtual: puedo ayudarle a agendar una cita o a consultar nuestros servicios.\n\n` +
         'Aviso de privacidad: sus datos (nombre y teléfono) se usan únicamente para gestionar su cita, conforme a la Ley 8968 de Protección de la Persona frente al Tratamiento de sus Datos Personales. ' +
         'Por favor no envíe síntomas ni información médica por este medio.\n\n' +
+        (aiActive
+          ? 'Para entender mejor sus mensajes, estos se procesan de forma automatizada con un servicio de inteligencia artificial.\n\n'
+          : '') +
         'Este canal no atiende emergencias: en ese caso llame al 9-1-1.',
     ),
 
@@ -172,9 +175,9 @@ export const M = {
       ...(more ? [{ id: ID.diaMas, title: 'Ver más días' }] : []),
     ],
   }),
-  askHour: (date: string, rows: Array<{ time: string; doctor?: string }>, more: boolean): Outgoing => ({
+  askHour: (date: string, rows: Array<{ time: string; doctor?: string }>, more: boolean, franja?: 'manana' | 'tarde'): Outgoing => ({
     type: 'list',
-    body: `Horarios disponibles para el ${formatDateLong(date)}. Seleccione el que le convenga.`,
+    body: `Horarios disponibles para el ${formatDateLong(date)}${franja ? (franja === 'manana' ? ', por la mañana' : ', por la tarde') : ''}. Seleccione el que le convenga.`,
     buttonLabel: 'Ver horarios',
     rows: [
       ...rows.map((r): ListRow => ({
@@ -191,6 +194,12 @@ export const M = {
       BTN.recepcion,
       BTN.menu,
     ),
+  requestedDayUnavailable: (date: string): Outgoing =>
+    text(`Lo sentimos, para el ${formatDateLong(date)} no hay espacios disponibles. Estos son los días más cercanos con espacios.`),
+  requestedTimeUnavailable: (date: string, time: string): Outgoing =>
+    text(`Lo sentimos, el ${formatDateLong(date)} no hay espacio ${hourPhrase(time)}. Estos son los horarios disponibles más cercanos.`),
+  requestedFranjaUnavailable: (date: string, franja: 'manana' | 'tarde'): Outgoing =>
+    text(`Lo sentimos, para el ${formatDateLong(date)} no quedan espacios ${franja === 'manana' ? 'por la mañana' : 'por la tarde'}. Estos son los horarios disponibles ese día.`),
   dayFull: (): Outgoing => text('Lo sentimos, ese día ya no tiene espacios disponibles.'),
   slotTaken: (): Outgoing => text('Lo sentimos, ese espacio acaba de ser ocupado. Con gusto le muestro otros horarios disponibles.'),
   askName: (): Outgoing => text('Perfecto. ¿Cuál es su nombre completo? Se usará únicamente para registrar la cita.'),

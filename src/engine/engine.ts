@@ -31,34 +31,45 @@ import { abandonFlow, showMenu, type EngineContext, type StepResult } from './st
 import { handOffToHuman } from './states/human.js';
 import { handleMenuChoice, handleMenuText } from './states/menu.js';
 import { handleServiceDetail, handleServicesList, repromptServiceDetail, startServices } from './states/services.js';
+import { applyAssist, FREE_TEXT_STATES, type Assist } from './states/assist.js';
 import type { Incoming, Outgoing, Session } from './types.js';
 
 export type { EngineContext } from './states/common.js';
+export { planAi, type Assist, type AiPlan } from './states/assist.js';
 
 export interface EngineResult {
   replies: Outgoing[];
   session: Session;
   /** true si el bot debe pausarse para esta conversación (pasa a recepción). */
   handoff: boolean;
+  /** true si las reglas no entendieron el mensaje (candidato a la IA). */
+  unresolved: boolean;
+  /** Dónde puede ir la `respuestaBreve` de la IA: insertarla o reemplazar el "no entendido" genérico. */
+  briefSlot?: { insertAt: number; replace: boolean };
 }
 
-/** Estados donde el paciente escribe datos libres: no se aplican las reglas de intención médica. */
-const FREE_TEXT_STATES = new Set(['AGENDAR_NOMBRE', 'AGENDAR_CEDULA']);
-
-export async function handleMessage(ctx: EngineContext, previous: Session, incoming: Incoming): Promise<EngineResult> {
+export async function handleMessage(
+  ctx: EngineContext,
+  previous: Session,
+  incoming: Incoming,
+  assist?: Assist,
+): Promise<EngineResult> {
   const s = structuredClone(previous);
   const replies: Outgoing[] = [];
   const firstContact = !s.greeted;
   if (firstContact) {
-    replies.push(M.greeting(ctx.clinic));
+    replies.push(M.greeting(ctx.clinic, ctx.aiEnabled ?? false));
     s.greeted = true;
   }
   if (s.state === 'HUMANO') showMenu(s); // la pausa ya terminó: se retoma desde el menú
 
   let handoff = false;
+  let unresolved = false;
+  let briefSlot: EngineResult['briefSlot'];
   try {
-    const outcome = await route(ctx, s, incoming);
+    const outcome = await route(ctx, s, incoming, assist);
     handoff = outcome.handoff ?? false;
+    unresolved = outcome.result === null;
 
     if (outcome.result === null || 'retry' in (outcome.result as object)) {
       if (outcome.result === null && firstContact) {
@@ -67,11 +78,15 @@ export async function handleMessage(ctx: EngineContext, previous: Session, incom
       } else {
         s.failures += 1;
         if (s.failures >= 2) replies.push(M.offerHuman());
-        else if (outcome.result === null) replies.push(M.notUnderstood(), ...(await reprompt(ctx, s)));
+        else if (outcome.result === null) {
+          if (assist?.briefOk) briefSlot = { insertAt: replies.length, replace: true };
+          replies.push(M.notUnderstood(), ...(await reprompt(ctx, s)));
+        }
         else replies.push(...(outcome.result as { retry: Outgoing[] }).retry);
       }
     } else {
       s.failures = 0;
+      if (outcome.briefAllowed) briefSlot = { insertAt: replies.length, replace: false };
       replies.push(...(outcome.result as Outgoing[]));
     }
   } catch (error) {
@@ -81,16 +96,17 @@ export async function handleMessage(ctx: EngineContext, previous: Session, incom
     s.failures = 0;
     replies.push(M.genericError());
   }
-  return { replies, session: s, handoff };
+  return { replies, session: s, handoff, unresolved, ...(briefSlot ? { briefSlot } : {}) };
 }
 
 interface Outcome {
   result: StepResult;
   handoff?: boolean;
+  briefAllowed?: boolean;
 }
 
 /** Reglas globales (antes del estado actual) y luego despacho por estado. */
-async function route(ctx: EngineContext, s: Session, incoming: Incoming): Promise<Outcome> {
+async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist?: Assist): Promise<Outcome> {
   if (incoming.type === 'unsupported') return { result: [M.unsupported()] };
 
   if (incoming.type === 'choice' && incoming.id.startsWith('menu:')) {
@@ -107,6 +123,12 @@ async function route(ctx: EngineContext, s: Session, incoming: Incoming): Promis
     if (!FREE_TEXT_STATES.has(s.state) && isMedicalQuestion(text) && !wantsToBook(text)) {
       return { result: [M.medicalLimit()] };
     }
+  }
+
+  // Solo si lo anterior no resolvió el mensaje (o hay más información que extraer): interpretación de la IA.
+  if (assist && incoming.type === 'text') {
+    const assisted = await applyAssist(ctx, s, incoming, assist, reprompt);
+    if (assisted) return assisted;
   }
 
   return { result: await dispatch(ctx, s, incoming) };

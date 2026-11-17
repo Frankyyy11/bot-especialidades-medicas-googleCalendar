@@ -1,7 +1,8 @@
 import { findDoctor, findSpecialty, type Doctor, type Specialty } from '../../config/clinic.js';
 import { SlotTakenError } from '../../agenda/provider.js';
 import { doctorWorksOn } from '../../agenda/slots.js';
-import { addDays, formatTime12, todayCR } from '../../util/dates.js';
+import type { Interpretation } from '../../ai/provider.js';
+import { addDays, formatTime12, minutesOf, todayCR } from '../../util/dates.js';
 import { isNo, isYes } from '../intents.js';
 import { describeAppointment, ID, M } from '../messages.js';
 import { newBooking, type Incoming, type Outgoing, type Session } from '../types.js';
@@ -168,11 +169,22 @@ async function showHours(ctx: EngineContext, s: Session): Promise<Outgoing[]> {
     return [M.dayFull(), ...(await showDays(ctx, s))];
   }
 
-  const pages = Math.ceil(slots.length / PAGE_SIZE);
-  // Con más de 9 horarios se pagina: 9 filas y "Ver más horarios" (la última página no lo lleva).
-  const paginated = slots.length > PAGE_SIZE;
+  // Preferencias del texto libre: la franja filtra (si deja algo) y la hora pedida ordena por cercanía.
+  // Siempre se muestran únicamente espacios reales de la agenda.
+  const franja = s.booking.franja;
+  const inFranja = franja ? slots.filter((x) => (franja === 'manana' ? minutesOf(x.time) < 720 : minutesOf(x.time) >= 720)) : [];
+  const shown = inFranja.length > 0 ? inFranja : slots;
+  const horaPref = s.booking.horaPref;
+  const ordered = horaPref
+    ? [...shown].sort((a, b) => Math.abs(minutesOf(a.time) - minutesOf(horaPref)) - Math.abs(minutesOf(b.time) - minutesOf(horaPref)) || a.time.localeCompare(b.time))
+    : shown;
+
+  const pages = Math.ceil(ordered.length / PAGE_SIZE);
+  // Con más de 9 horarios se pagina: 9 filas y "Ver más horarios" (la última página no lleva "Ver más").
+  const paginated = ordered.length > PAGE_SIZE;
   if (s.booking.slotPage >= pages) s.booking.slotPage = 0;
-  const pageSlots = paginated ? slots.slice(s.booking.slotPage * PAGE_SIZE, (s.booking.slotPage + 1) * PAGE_SIZE) : slots;
+  const pageSlots = paginated ? ordered.slice(s.booking.slotPage * PAGE_SIZE, (s.booking.slotPage + 1) * PAGE_SIZE) : ordered;
+  if (horaPref) pageSlots.sort((a, b) => a.time.localeCompare(b.time));
   const more = paginated && s.booking.slotPage < pages - 1;
 
   const showDoctor = !s.booking.medicoId || s.booking.medicoId === 'any';
@@ -185,6 +197,7 @@ async function showHours(ctx: EngineContext, s: Session): Promise<Outgoing[]> {
         ...(showDoctor ? { doctor: findDoctor(ctx.clinic, slot.doctorId)?.doctor.nombre ?? '' } : {}),
       })),
       more,
+      inFranja.length > 0 ? franja : undefined,
     ),
   ];
 }
@@ -340,3 +353,75 @@ async function createBooking(ctx: EngineContext, s: Session): Promise<Outgoing[]
   }
 }
 
+
+// --- Reserva a partir de una interpretación de texto libre (IA) -------------------
+// La IA solo aporta preferencias (especialidad, médico, día, franja, hora). Todo horario que ve el
+// paciente sale de la agenda real, y crear la cita sigue exigiendo nombre y confirmación explícita.
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+export async function bookFromInterpretation(ctx: EngineContext, s: Session, it: Interpretation): Promise<Outgoing[]> {
+  const inBooking = s.state.startsWith('AGENDAR_');
+  const carried = inBooking ? s.booking : undefined;
+  const specId = it.especialidadId ?? carried?.especialidadId;
+  const sameSpec = !it.especialidadId || it.especialidadId === carried?.especialidadId;
+  const medico = it.medicoId ?? (sameSpec ? carried?.medicoId : undefined);
+  // "mejor a las 4" dentro del flujo: si ya había un día elegido y sigue la misma especialidad, se conserva.
+  const fecha = it.fecha ?? (sameSpec ? carried?.date : undefined);
+
+  resetFlow(s);
+  const active = await ctx.agenda.listAppointments(s.phone);
+  if (active.length >= ctx.clinic.maxCitasActivasPorTelefono) return [M.bookingLimit(ctx.clinic.maxCitasActivasPorTelefono)];
+
+  const spec = specId ? findSpecialty(ctx.clinic, specId) : undefined;
+  if (!spec) {
+    s.state = 'AGENDAR_ESPECIALIDAD';
+    return [M.askSpecialty(ctx.clinic)];
+  }
+  s.booking = { ...newBooking(), especialidadId: spec.id };
+  if (it.franja) s.booking.franja = it.franja;
+  if (it.hora) s.booking.horaPref = it.hora;
+
+  if (medico === 'any' || (medico && spec.medicos.some((m) => m.id === medico))) s.booking.medicoId = medico!;
+  else if (spec.medicos.length === 1) s.booking.medicoId = spec.medicos[0]!.id;
+  else if (fecha) s.booking.medicoId = 'any'; // con día pedido se buscan espacios entre todos; el paciente ve el médico en cada hora
+  else {
+    s.state = 'AGENDAR_MEDICO';
+    return [M.askDoctor(spec)];
+  }
+
+  if (!fecha) return showDays(ctx, s);
+  return applyRequestedDate(ctx, s, spec, fecha, it);
+}
+
+async function applyRequestedDate(ctx: EngineContext, s: Session, spec: Specialty, date: string, it: Interpretation): Promise<Outgoing[]> {
+  const slots = await loadDaySlots(ctx, spec, s.booking.medicoId, date);
+  if (slots.length === 0) {
+    // Ese día no hay espacios: se ofrecen los días más cercanos desde esa fecha, según la agenda real.
+    s.booking.dayCursor = Math.max(0, daysBetween(todayCR(ctx.now()), date));
+    return [M.requestedDayUnavailable(date), ...(await showDays(ctx, s))];
+  }
+  s.booking.date = date;
+  s.booking.slotPage = 0;
+
+  if (it.hora) {
+    const exact = slots.find((x) => x.time === it.hora);
+    if (exact) {
+      s.booking.time = exact.time;
+      s.booking.doctorId = exact.doctorId;
+      s.state = 'AGENDAR_NOMBRE';
+      return [M.askName()];
+    }
+    return [M.requestedTimeUnavailable(date, it.hora), ...(await showHours(ctx, s))];
+  }
+  if (it.franja) {
+    const hasFranja = slots.some((x) => (it.franja === 'manana' ? minutesOf(x.time) < 720 : minutesOf(x.time) >= 720));
+    if (!hasFranja) {
+      delete s.booking.franja;
+      return [M.requestedFranjaUnavailable(date, it.franja), ...(await showHours(ctx, s))];
+    }
+  }
+  return showHours(ctx, s);
+}

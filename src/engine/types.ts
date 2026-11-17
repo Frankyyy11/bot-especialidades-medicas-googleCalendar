@@ -1,5 +1,7 @@
 // Tipos compartidos entre el motor, WhatsApp y el simulador.
 
+import type { AiTurn, Franja } from '../ai/provider.js';
+
 /** Mensaje entrante ya normalizado. */
 export type Incoming =
   | { type: 'text'; text: string }
@@ -53,6 +55,9 @@ export interface Booking {
   /** Paginación de días (offset en días desde hoy) y de horarios. */
   dayCursor: number;
   slotPage: number;
+  /** Preferencias interpretadas del texto libre: solo ordenan/filtran lo que ya sale de la agenda real. */
+  franja?: Franja;
+  horaPref?: string;
 }
 
 export interface Session {
@@ -64,6 +69,8 @@ export interface Session {
   booking: Booking;
   /** Cita seleccionada para cancelar. */
   cancelAppointmentId?: string;
+  /** Turnos recientes enviados a la IA (máx. 6). Nunca contiene nombre, cédula ni datos de citas. */
+  aiHistory?: AiTurn[];
 }
 
 export function newBooking(): Booking {

@@ -10,6 +10,8 @@ export interface EngineContext {
   agenda: AgendaProvider;
   now: () => Date;
   confirmationMode?: ConfirmationMode;
+  /** true si hay una capa de IA activa (solo cambia el aviso de privacidad del primer contacto). */
+  aiEnabled?: boolean;
 }
 
 /** Respuesta de un manejador de estado: mensajes, o `null` si no entendió, o un reintento con texto propio. */

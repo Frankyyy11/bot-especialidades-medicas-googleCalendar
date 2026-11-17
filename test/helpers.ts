@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import { MemoryAgendaProvider } from '../src/agenda/memory.js';
+import type { AiProvider } from '../src/ai/provider.js';
 import { Bot } from '../src/bot.js';
 import { loadClinic, parseClinic, type Clinic } from '../src/config/clinic.js';
 import type { Incoming, Outgoing } from '../src/engine/types.js';
@@ -24,6 +25,10 @@ export interface HarnessOptions {
   now?: Date;
   confirmationMode?: 'recepcion' | 'auto';
   sessionTtlMinutes?: number;
+  /** Capa de IA simulada (sin red). Sin esto el bot funciona solo con reglas. */
+  ai?: AiProvider;
+  aiTimeoutMs?: number;
+  aiMaxCallsPerDay?: number;
 }
 
 /** Bot completo con agenda en memoria y reloj controlable. */
@@ -34,7 +39,23 @@ export function createHarness(options: HarnessOptions = {}) {
   const agenda = new MemoryAgendaProvider({ clinic, now, confirmationMode: options.confirmationMode ?? 'recepcion' });
   const sessions = new MemorySessionStore((options.sessionTtlMinutes ?? 30) * 60_000, () => clock.now);
   const pauses = new MemoryHumanPauseStore(() => clock.now);
-  const bot = new Bot({ clinic, agenda, sessions, pauses, humanPauseMinutes: 120, now });
+  const bot = new Bot({
+    clinic,
+    agenda,
+    sessions,
+    pauses,
+    humanPauseMinutes: 120,
+    now,
+    ...(options.ai
+      ? {
+          ai: {
+            provider: options.ai,
+            ...(options.aiTimeoutMs ? { timeoutMs: options.aiTimeoutMs } : {}),
+            ...(options.aiMaxCallsPerDay !== undefined ? { maxCallsPerPhonePerDay: options.aiMaxCallsPerDay } : {}),
+          },
+        }
+      : {}),
+  });
 
   async function send(incoming: Incoming, phone = PHONE): Promise<Outgoing[]> {
     const replies = await bot.handle(phone, incoming);
