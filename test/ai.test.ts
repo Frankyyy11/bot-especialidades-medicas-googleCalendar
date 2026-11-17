@@ -27,14 +27,29 @@ describe('IA: comprensión que salta pasos', () => {
     expect(textOf(replies[1]!)).toBe('Con gusto, le ayudo a agendar su cita.');
     const list = lastList(replies);
     expect(list.body).toContain('jueves 19 de noviembre, por la tarde');
-    expect(list.rows.length).toBeGreaterThan(0);
-    for (const row of list.rows) {
+    // Como ya dijo cuándo le conviene, se sugieren 3 horarios y "Ver más horarios".
+    expect(list.body).toContain('le sugiero estos horarios');
+    const times = list.rows.filter((r) => r.id !== 'hora:mas');
+    expect(times).toHaveLength(3);
+    expect(list.rows.at(-1)?.id).toBe('hora:mas');
+    for (const row of times) {
       expect(row.description).toBe('Dr. Bruno Prueba'); // el jueves solo atiende él
       expect(row.id).toMatch(/^hora:1[3-6]:/); // tarde
     }
-    // Es exactamente lo que ofrece la agenda.
-    const real = await h.agenda.getAvailableSlots('cardio-2', THURSDAY);
-    expect(list.rows.map((r) => r.id)).toEqual(real.map((s) => `hora:${s.time}`).slice(0, list.rows.length));
+    // Son exactamente los primeros que ofrece la agenda por la tarde.
+    const real = (await h.agenda.getAvailableSlots('cardio-2', THURSDAY)).filter((s) => s.time >= '12:00');
+    expect(times.map((r) => r.id)).toEqual(real.slice(0, 3).map((s) => `hora:${s.time}`));
+
+    // "Ver más horarios" abre la lista completa de esa franja, sin repetir el modo sugerencia.
+    const full = lastList(await h.pick('hora:mas'));
+    expect(full.body).toContain('Horarios disponibles');
+    expect(full.rows.filter((r) => r.id !== 'hora:mas').map((r) => r.id)).toEqual(real.slice(0, 9).map((s) => `hora:${s.time}`));
+
+    // Una hora real que no estaba entre las sugeridas también se acepta escrita.
+    const h2 = createHarness({ ai: new FakeAiProvider() });
+    await h2.say('ocupo cita con cardiología el jueves en la tarde');
+    const typed = await h2.say(real.at(-1)!.time);
+    expect(allText(typed)).toMatch(/nombre completo/);
     expect((await h.sessions.get(PHONE))?.state).toBe('AGENDAR_HORA');
   });
 

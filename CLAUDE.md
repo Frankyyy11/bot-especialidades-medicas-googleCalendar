@@ -58,6 +58,8 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 16. **`noDisponible` es una señal, no un dato.** Cuando la IA indica que piden algo que el centro no ofrece, el texto sale de `M.notOffered` con datos de la config y nunca repite palabras de la IA; el motor ignora la señal si las reglas encuentran en el mensaje una especialidad o médico que sí existe (`unavailableKind` en `assist.ts`).
 17. **Conversación a mitad de un paso.** Una respuesta conversacional (frase válida + `M.continueStep`, botón `cont:paso`) no cambia el estado, no repite la lista y no cuenta como fallo. En `AGENDAR_CONFIRMAR` y `CITAS_CONFIRMAR` la frase nunca va junto al resumen, y `confirmar`/`negar` de la IA se ignoran ahí.
 
+18. **Horarios sugeridos.** Si el paciente ya indicó franja u hora, `showHours` muestra primero 3 horarios reales (los más cercanos a lo pedido) y "Ver más horarios" abre la lista completa; cualquier hora real del día se sigue aceptando escrita.
+
 ## Convenciones
 
 - TypeScript estricto, ESM: los imports relativos terminan en `.js`.

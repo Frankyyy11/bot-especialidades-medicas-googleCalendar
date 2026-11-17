@@ -228,9 +228,11 @@ export const M = {
       ...(more ? [{ id: ID.diaMas, title: 'Ver más días' }] : []),
     ],
   }),
-  askHour: (date: string, rows: Array<{ time: string; doctor?: string }>, more: boolean, franja?: 'manana' | 'tarde'): Outgoing => ({
+  askHour: (date: string, rows: Array<{ time: string; doctor?: string }>, more: boolean, franja?: 'manana' | 'tarde', suggested = false): Outgoing => ({
     type: 'list',
-    body: `Horarios disponibles para el ${formatDateLong(date)}${franja ? (franja === 'manana' ? ', por la mañana' : ', por la tarde') : ''}. Seleccione el que le convenga.`,
+    body: suggested
+      ? `Para el ${formatDateLong(date)}${franja ? (franja === 'manana' ? ', por la mañana' : ', por la tarde') : ''}, le sugiero estos horarios. Si prefiere otro, puede ver más o escribir la hora.`
+      : `Horarios disponibles para el ${formatDateLong(date)}${franja ? (franja === 'manana' ? ', por la mañana' : ', por la tarde') : ''}. Seleccione el que le convenga.`,
     buttonLabel: 'Ver horarios',
     rows: [
       ...rows.map((r): ListRow => ({

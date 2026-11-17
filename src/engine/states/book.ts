@@ -9,6 +9,7 @@ import { newBooking, type Incoming, type Outgoing, type Session } from '../types
 import { abandonFlow, pickOption, resetFlow, type EngineContext, type StepResult } from './common.js';
 
 const PAGE_SIZE = 9; // 9 filas + "Ver más" = 10, el máximo de una lista de WhatsApp
+const SUGGESTED_SLOTS = 3; // horarios sugeridos cuando el paciente ya indicó franja u hora
 const DAY_BATCH = 7;
 
 // --- Utilidades -------------------------------------------------------------
@@ -179,13 +180,28 @@ async function showHours(ctx: EngineContext, s: Session): Promise<Outgoing[]> {
     ? [...shown].sort((a, b) => Math.abs(minutesOf(a.time) - minutesOf(horaPref)) - Math.abs(minutesOf(b.time) - minutesOf(horaPref)) || a.time.localeCompare(b.time))
     : shown;
 
-  const pages = Math.ceil(ordered.length / PAGE_SIZE);
-  // Con más de 9 horarios se pagina: 9 filas y "Ver más horarios" (la última página no lleva "Ver más").
-  const paginated = ordered.length > PAGE_SIZE;
+  // Si el paciente ya dijo cuándo le conviene (franja u hora), primero se sugieren pocos horarios
+  // (los más cercanos a lo pedido) y "Ver más horarios" abre la lista completa del día.
+  const hasPreference = inFranja.length > 0 || Boolean(horaPref);
+  const suggesting = hasPreference && ordered.length > SUGGESTED_SLOTS;
+  // En modo sugerencia la página 0 son las sugerencias y las siguientes recorren la lista completa.
+  const fullPages = Math.ceil(ordered.length / PAGE_SIZE);
+  const pages = suggesting ? fullPages + 1 : fullPages;
   if (s.booking.slotPage >= pages) s.booking.slotPage = 0;
-  const pageSlots = paginated ? ordered.slice(s.booking.slotPage * PAGE_SIZE, (s.booking.slotPage + 1) * PAGE_SIZE) : ordered;
-  if (horaPref) pageSlots.sort((a, b) => a.time.localeCompare(b.time));
-  const more = paginated && s.booking.slotPage < pages - 1;
+
+  let pageSlots: typeof ordered;
+  let more: boolean;
+  if (suggesting && s.booking.slotPage === 0) {
+    pageSlots = ordered.slice(0, SUGGESTED_SLOTS);
+    more = true;
+  } else {
+    // Con más de 9 horarios se pagina: 9 filas y "Ver más horarios" (la última página no lleva "Ver más").
+    const fullPage = suggesting ? s.booking.slotPage - 1 : s.booking.slotPage;
+    pageSlots = ordered.length > PAGE_SIZE ? ordered.slice(fullPage * PAGE_SIZE, (fullPage + 1) * PAGE_SIZE) : [...ordered];
+    more = fullPage < fullPages - 1;
+  }
+  pageSlots = [...pageSlots].sort((a, b) => a.time.localeCompare(b.time));
+  const suggested = suggesting && s.booking.slotPage === 0;
 
   const showDoctor = !s.booking.medicoId || s.booking.medicoId === 'any';
   s.state = 'AGENDAR_HORA';
@@ -198,6 +214,7 @@ async function showHours(ctx: EngineContext, s: Session): Promise<Outgoing[]> {
       })),
       more,
       inFranja.length > 0 ? franja : undefined,
+      suggested,
     ),
   ];
 }

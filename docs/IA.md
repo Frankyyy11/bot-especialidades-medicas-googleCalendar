@@ -107,6 +107,8 @@ AI_PROVIDER=fake npm run chat
 
 En PowerShell la variable queda definida en esa ventana; para quitarla: `Remove-Item Env:AI_PROVIDER`.
 
+El simulador no muestra los logs JSON (aunque el `.env` diga `LOG_LEVEL=info`). Con Gemini real imprime una línea corta por mensaje con lo que hizo la IA (`· IA: respondió (agendar, 820 ms)` o `· IA: falló (http, 300 ms)`), que sirve para saber si Gemini contestó de verdad. `CHAT_IA=1` fuerza esa línea también con la IA simulada y `CHAT_LOGS=1` vuelve a mostrar los logs JSON completos.
+
 `CHAT_NOW=2026-11-16T10:00:00-06:00` fija el reloj para guiones reproducibles. Hay dos guiones: `test/fixtures/ia-simulador.txt` (general) y `test/fixtures/ia-conversacion.txt` (preguntas a mitad de un paso y cosas que el centro no ofrece):
 
 ```powershell

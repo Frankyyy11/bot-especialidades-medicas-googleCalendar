@@ -13,10 +13,28 @@ import { loadClinic } from '../config/clinic.js';
 import { loadEnv } from '../env.js';
 import type { Outgoing } from '../engine/types.js';
 import { MemoryHumanPauseStore, MemorySessionStore } from '../sessions/store.js';
+import { setLogSink } from '../util/logger.js';
 import { fitOutgoing } from '../whatsapp/limits.js';
 
-// En el simulador no se mezclan los logs JSON con la conversación (use LOG_LEVEL=info para verlos).
-process.env.LOG_LEVEL ??= 'warn';
+// El simulador no mezcla los logs JSON con la conversación, aunque el .env diga LOG_LEVEL=info.
+// Solo muestra una línea corta con lo que hizo la IA real (útil para saber si Gemini respondió).
+// CHAT_LOGS=1 vuelve a mostrar los logs JSON completos.
+const showJsonLogs = process.env.CHAT_LOGS === '1';
+const dim = (line: string): string => (process.stdout.isTTY ? `\x1b[2m${line}\x1b[0m` : line);
+const AI_STATUS: Record<string, (f: Record<string, unknown>) => string> = {
+  ia_usada: (f) => `IA: respondió (${String(f.intent)}, ${String(f.ms)} ms)`,
+  ia_fallo: (f) => `IA: falló (${String(f.tipo)}, ${String(f.ms)} ms); se respondió solo con reglas`,
+  ia_descartada: (f) => `IA: sin interpretación útil (${String(f.ms)} ms)`,
+  ia_respuesta_descartada: (f) => `IA: frase descartada por las guardas (${String(f.motivo)})`,
+  ia_tope_diario: () => 'IA: tope diario alcanzado; se respondió solo con reglas',
+};
+let showAiStatus = false;
+if (!showJsonLogs) {
+  setLogSink((_level, event, fields) => {
+    const describe = AI_STATUS[event];
+    if (showAiStatus && describe) console.log(dim(`     · ${describe(fields)}`));
+  });
+}
 
 const PHONE = '50600000000'; // número ficticio
 const clinic = loadClinic(process.env.CLINIC_CONFIG_PATH ?? 'config/centro.json');
@@ -26,6 +44,8 @@ const humanPauseMinutes = Number(process.env.HUMAN_PAUSE_MINUTES ?? 120);
 // El simulador usa IA simulada por defecto; solo se toman de aquí las variables de la capa de IA.
 const aiEnv = loadEnv({ ...process.env, AI_PROVIDER: process.env.AI_PROVIDER ?? 'fake' });
 const aiProvider = createAiProvider(aiEnv);
+// Con la IA simulada la línea de estado no aporta; con Gemini real sí (CHAT_IA=1 la fuerza).
+showAiStatus = aiEnv.AI_PROVIDER === 'gemini' || process.env.CHAT_IA === '1';
 const fixedNow = process.env.CHAT_NOW ? new Date(process.env.CHAT_NOW) : undefined;
 if (fixedNow && Number.isNaN(fixedNow.getTime())) throw new Error('CHAT_NOW no es una fecha válida (use p. ej. 2026-11-16T10:00:00-06:00)');
 const now = fixedNow ? () => fixedNow : () => new Date();

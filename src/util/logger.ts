@@ -27,7 +27,19 @@ function currentLevel(): Level {
   return raw && raw in ORDER ? (raw as Level) : 'info';
 }
 
+export type LogSink = (level: Level, event: string, fields: Record<string, unknown>) => void;
+let sink: LogSink | undefined;
+
+/** Redirige los logs (ya sin datos personales) a otra salida; lo usa el simulador para no mezclar JSON con la conversación. */
+export function setLogSink(next: LogSink | undefined): void {
+  sink = next;
+}
+
 function write(level: Level, event: string, fields: Record<string, unknown> = {}): void {
+  if (sink) {
+    sink(level, event, sanitize(fields));
+    return;
+  }
   if (ORDER[level] < ORDER[currentLevel()]) return;
   const line = JSON.stringify({ t: new Date().toISOString(), level, event, ...sanitize(fields) });
   (level === 'error' || level === 'warn' ? process.stderr : process.stdout).write(line + '\n');
