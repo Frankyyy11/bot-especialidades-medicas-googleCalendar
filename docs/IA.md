@@ -82,8 +82,15 @@ Use el nombre sin el prefijo `models/` (ambas formas funcionan). Conviene un mod
 | `AI_PROVIDER` | `none` | `none`, `gemini` o `fake` (simulada, para pruebas y simulador) |
 | `GEMINI_API_KEY` | – | Key de la API; viaja en el encabezado `x-goog-api-key`, nunca en la URL |
 | `GEMINI_MODEL` | – (obligatoria con `gemini`) | Modelo a usar |
-| `AI_TIMEOUT_MS` | `6000` | Tiempo máximo por intento; se hace como máximo un reintento |
+| `GEMINI_THINKING_BUDGET` | – | Opcional. `0` = sin razonamiento (más rápido) en los modelos que lo admiten |
+| `AI_TIMEOUT_MS` | `6000` | Tiempo máximo de espera; un tiempo agotado no se reintenta (otros fallos transitorios sí, una vez) |
 | `AI_MAX_CALLS_PER_PHONE_PER_DAY` | `40` | Tope de llamadas por teléfono por día (hora de Costa Rica) |
+
+## Velocidad: intérprete local y tiempos de espera
+
+- Con `AI_PROVIDER=gemini` el bot lleva además un **intérprete local por reglas** (instantáneo, sin red). Si entiende por sí solo una reserva con sus datos ("cardiología el miércoles a las 4"), responde de inmediato **sin llamar a Gemini**. Si Gemini falla o tarda, se usa lo que haya entendido el intérprete local. Gemini queda para lo que las reglas no entienden (preguntas abiertas, frases poco comunes).
+- Un tiempo agotado **no se reintenta** (duplicaría la espera del paciente): la espera máxima es `AI_TIMEOUT_MS`.
+- Si ve `IA: falló (timeout ...)` seguido: pruebe un modelo más liviano (los `flash-lite`), suba `AI_TIMEOUT_MS` (p. ej. 10000) o desactive el razonamiento con `GEMINI_THINKING_BUDGET=0` en los modelos que lo admiten (verificar contra la documentación oficial; si el modelo no lo acepta responderá con error HTTP y el bot seguirá con reglas).
 
 ## Cómo apagarla
 

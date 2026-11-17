@@ -5,7 +5,7 @@ import type { AgendaProvider, ConfirmationMode } from './agenda/provider.js';
 import { AiCallBudget } from './ai/budget.js';
 import { guardBrief, outgoingText, validateInterpretation } from './ai/guards.js';
 import { redactForAi, MAX_HISTORY_TURNS } from './ai/prompt.js';
-import { AiError, type AiInput, type AiProvider } from './ai/provider.js';
+import { AiError, type AiInput, type AiProvider, type Interpretation } from './ai/provider.js';
 import { interpretWithRetry } from './ai/safe.js';
 import type { Clinic } from './config/clinic.js';
 import { handleMessage, planAi, type Assist, type EngineResult } from './engine/engine.js';
@@ -19,6 +19,11 @@ import type { RateLimiter } from './util/rateLimit.js';
 /** Capa de IA opcional (SPEC-IA.md). Sin esto el bot funciona solo con reglas, como siempre. */
 export interface BotAiConfig {
   provider: AiProvider;
+  /**
+   * Intérprete local por reglas (instantáneo, sin red). Si entiende por sí solo una reserva con sus datos,
+   * se usa sin llamar al proveedor remoto; y si el remoto falla o tarda, sirve de respaldo.
+   */
+  local?: AiProvider;
   /** Tiempo máximo por intento (por defecto 6000 ms). */
   timeoutMs?: number;
   /** Tope diario de llamadas por teléfono (por defecto 40). */
@@ -137,10 +142,6 @@ export class Bot {
     const ai = this.deps.ai;
     const phone = session.phone;
     if (!ai || !this.budget) return undefined;
-    if (!this.budget.tryConsume(phone)) {
-      logger.info('ia_tope_diario', { phone });
-      return undefined;
-    }
 
     const today = todayCR(this.now());
     const input: AiInput = {
@@ -152,25 +153,46 @@ export class Bot {
       state: session.state,
     };
     const started = Date.now();
+    const finish = (interpretation: Interpretation, origen: 'ia' | 'local'): Consulted => {
+      const { respuestaBreve, ...rest } = interpretation;
+      logger.info(origen === 'ia' ? 'ia_usada' : 'ia_local', { phone, modo: mode, intent: rest.intent, ms: Date.now() - started });
+      return {
+        assist: { interpretation: rest, mode, briefOk: guardBrief(respuestaBreve, ctx.clinic).ok },
+        ...(respuestaBreve ? { brief: respuestaBreve } : {}),
+      };
+    };
+
+    // 1) Intérprete local: si ya entiende una reserva con sus datos, no hace falta esperar a la IA remota.
+    let local: Interpretation | undefined;
+    if (ai.local) {
+      try {
+        local = validateInterpretation(await ai.local.interpret(input), { clinic: ctx.clinic, today }) ?? undefined;
+      } catch {
+        local = undefined;
+      }
+      if (local && local.intent === 'agendar' && (local.fecha || local.hora || local.franja)) return finish(local, 'local');
+    }
+
+    // 2) IA remota (con tope diario). Si falla o tarda, se usa lo que haya entendido el intérprete local.
+    const localFallback = (): Consulted | undefined => (local && local.intent !== 'otro' ? finish(local, 'local') : undefined);
+    if (!this.budget.tryConsume(phone)) {
+      logger.info('ia_tope_diario', { phone });
+      return localFallback();
+    }
     let raw: unknown;
     try {
       raw = await interpretWithRetry(ai.provider, input, ai.timeoutMs ?? 6000);
     } catch (error) {
       logger.warn('ia_fallo', { phone, tipo: error instanceof AiError ? error.kind : 'desconocido', ms: Date.now() - started });
-      return undefined;
+      return localFallback();
     }
 
     const interpretation = validateInterpretation(raw, { clinic: ctx.clinic, today });
     if (!interpretation) {
       logger.info('ia_descartada', { phone, ms: Date.now() - started, motivo: 'sin_interpretacion' });
-      return {};
+      return localFallback() ?? {};
     }
-    const { respuestaBreve, ...rest } = interpretation;
-    logger.info('ia_usada', { phone, modo: mode, intent: rest.intent, ms: Date.now() - started });
-    return {
-      assist: { interpretation: rest, mode, briefOk: guardBrief(respuestaBreve, ctx.clinic).ok },
-      ...(respuestaBreve ? { brief: respuestaBreve } : {}),
-    };
+    return finish(interpretation, 'ia');
   }
 
   /** Historial breve de la sesión para la IA: solo texto ya enviado a la IA (sin números largos) y frases guardadas. */

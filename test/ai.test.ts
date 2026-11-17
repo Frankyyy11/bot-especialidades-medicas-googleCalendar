@@ -191,11 +191,11 @@ describe('IA: validación, guardas y fallos', () => {
     expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
   });
 
-  it('tiempo agotado: un reintento y caída silenciosa a reglas', async () => {
+  it('tiempo agotado: no se reintenta (no duplicar la espera) y cae en silencio a reglas', async () => {
     const { ai, h } = withAi(() => new Promise(() => undefined), { aiTimeoutMs: 20 });
     await h.say('hola');
     const replies = await h.say('necesito ayuda con algo');
-    expect(ai.calls).toHaveLength(2); // intento + 1 reintento
+    expect(ai.calls).toHaveLength(1); // un tiempo agotado no se reintenta
     expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
     expect(allText(replies)).not.toMatch(/\berror\b|timeout|\bIA\b|inteligencia/);
   });
@@ -218,7 +218,7 @@ describe('IA: validación, guardas y fallos', () => {
 
     let n = 0;
     const flaky = withAi(() => {
-      if (n++ === 0) throw new AiError('timeout', 'tiempo', true);
+      if (n++ === 0) throw new AiError('network', 'red', true);
       return { intent: 'horario_ubicacion' };
     });
     await flaky.h.say('hola');
@@ -462,5 +462,34 @@ describe('IA: frase con especialidad mal escrita y día', () => {
     const replies = await h.say('Quiero agendar una cita con cardiologica el miercoles de esta semana');
     expect(allText(replies)).toContain('Cardiología');
     expect((await h.sessions.get(PHONE))?.state).not.toBe('AGENDAR_ESPECIALIDAD');
+  });
+});
+
+describe('IA: intérprete local junto a la IA remota', () => {
+  it('una reserva clara se resuelve al instante, sin llamar a la IA remota', async () => {
+    const { ai, h } = withAi(() => new Promise(() => undefined), { aiTimeoutMs: 20, aiLocal: new FakeAiProvider() });
+    const replies = await h.say('Para cardiologia, el miercoles a las 4 de la tarde.');
+    expect(ai.calls).toHaveLength(0);
+    expect(allText(replies)).toContain('miércoles 18 de noviembre');
+    expect((await h.sessions.get(PHONE))?.state).not.toBe('AGENDAR_MEDICO');
+  });
+
+  it('a mitad del flujo, "ya le dije que miércoles a las 4" usa el día y la hora aunque la IA remota no responda', async () => {
+    const { h } = withAi(() => new Promise(() => undefined), { aiTimeoutMs: 20, aiLocal: new FakeAiProvider() });
+    await h.say('hola');
+    await h.say('quiero una cita de cardiologia');
+    const replies = await h.say('Ya te dije que miercoles a las 4');
+    expect(allText(replies)).toContain('miércoles 18 de noviembre');
+    expect(allText(replies)).not.toContain('no estoy seguro de haberle entendido');
+  });
+
+  it('si la IA remota falla en una pregunta general, responde con lo que entendió el intérprete local', async () => {
+    const { ai, h } = withAi(() => {
+      throw new AiError('http', 'HTTP 403', false);
+    }, { aiLocal: new FakeAiProvider() });
+    await h.say('hola');
+    const replies = await h.say('¿puedo pagar con tarjeta o es solo efectivo?');
+    expect(ai.calls).toHaveLength(1);
+    expect(allText(replies)).toContain('Formas de pago');
   });
 });

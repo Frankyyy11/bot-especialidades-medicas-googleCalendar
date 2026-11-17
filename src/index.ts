@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createAgendaProvider } from './agenda/index.js';
-import { createAiProvider } from './ai/index.js';
+import { createAiProvider, createLocalInterpreter } from './ai/index.js';
 import { createApp } from './app.js';
 import { Bot } from './bot.js';
 import { loadClinic } from './config/clinic.js';
@@ -21,6 +21,8 @@ function main(): void {
   }
 
   const aiProvider = createAiProvider(env);
+
+  const aiLocal = createLocalInterpreter(env);
   if (env.AI_PROVIDER === 'gemini') {
     logger.warn('ia_activa', {
       proveedor: 'gemini',
@@ -43,7 +45,7 @@ function main(): void {
     confirmationMode: env.CONFIRMATION_MODE,
     rateLimiter: new RateLimiter(env.RATE_LIMIT_PER_MINUTE),
     ...(aiProvider
-      ? { ai: { provider: aiProvider, timeoutMs: env.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: env.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
+      ? { ai: { provider: aiProvider, ...(aiLocal ? { local: aiLocal } : {}), timeoutMs: env.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: env.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
       : {}),
   });
 

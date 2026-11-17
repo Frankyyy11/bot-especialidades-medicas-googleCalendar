@@ -27,6 +27,7 @@ export interface HarnessOptions {
   sessionTtlMinutes?: number;
   /** Capa de IA simulada (sin red). Sin esto el bot funciona solo con reglas. */
   ai?: AiProvider;
+  aiLocal?: AiProvider;
   aiTimeoutMs?: number;
   aiMaxCallsPerDay?: number;
 }
@@ -50,6 +51,7 @@ export function createHarness(options: HarnessOptions = {}) {
       ? {
           ai: {
             provider: options.ai,
+            ...(options.aiLocal ? { local: options.aiLocal } : {}),
             ...(options.aiTimeoutMs ? { timeoutMs: options.aiTimeoutMs } : {}),
             ...(options.aiMaxCallsPerDay !== undefined ? { maxCallsPerPhonePerDay: options.aiMaxCallsPerDay } : {}),
           },

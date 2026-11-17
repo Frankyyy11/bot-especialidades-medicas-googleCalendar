@@ -7,7 +7,7 @@
 import 'dotenv/config';
 import { createInterface } from 'node:readline';
 import { MemoryAgendaProvider } from '../agenda/memory.js';
-import { createAiProvider } from '../ai/index.js';
+import { createAiProvider, createLocalInterpreter } from '../ai/index.js';
 import { Bot } from '../bot.js';
 import { loadClinic } from '../config/clinic.js';
 import { loadEnv } from '../env.js';
@@ -23,7 +23,8 @@ const showJsonLogs = process.env.CHAT_LOGS === '1';
 const dim = (line: string): string => (process.stdout.isTTY ? `\x1b[2m${line}\x1b[0m` : line);
 const AI_STATUS: Record<string, (f: Record<string, unknown>) => string> = {
   ia_usada: (f) => `IA: respondió (${String(f.intent)}, ${String(f.ms)} ms)`,
-  ia_fallo: (f) => `IA: falló (${String(f.tipo)}, ${String(f.ms)} ms); se respondió solo con reglas`,
+  ia_local: (f) => `Entendido por reglas locales, sin esperar a la IA (${String(f.intent)}, ${String(f.ms)} ms)`,
+  ia_fallo: (f) => `IA: falló (${String(f.tipo)}, ${String(f.ms)} ms); se sigue con reglas`,
   ia_descartada: (f) => `IA: sin interpretación útil (${String(f.ms)} ms)`,
   ia_respuesta_descartada: (f) => `IA: frase descartada por las guardas (${String(f.motivo)})`,
   ia_tope_diario: () => 'IA: tope diario alcanzado; se respondió solo con reglas',
@@ -44,6 +45,7 @@ const humanPauseMinutes = Number(process.env.HUMAN_PAUSE_MINUTES ?? 120);
 // El simulador usa IA simulada por defecto; solo se toman de aquí las variables de la capa de IA.
 const aiEnv = loadEnv({ ...process.env, AI_PROVIDER: process.env.AI_PROVIDER ?? 'fake' });
 const aiProvider = createAiProvider(aiEnv);
+const aiLocal = createLocalInterpreter(aiEnv);
 // Con la IA simulada la línea de estado no aporta; con Gemini real sí (CHAT_IA=1 la fuerza).
 showAiStatus = aiEnv.AI_PROVIDER === 'gemini' || process.env.CHAT_IA === '1';
 const fixedNow = process.env.CHAT_NOW ? new Date(process.env.CHAT_NOW) : undefined;
@@ -54,7 +56,7 @@ const bot = new Bot({
   clinic,
   now,
   ...(aiProvider
-    ? { ai: { provider: aiProvider, timeoutMs: aiEnv.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: aiEnv.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
+    ? { ai: { provider: aiProvider, ...(aiLocal ? { local: aiLocal } : {}), timeoutMs: aiEnv.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: aiEnv.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
     : {}),
   agenda: new MemoryAgendaProvider({ clinic, confirmationMode, now }),
   sessions: new MemorySessionStore(Number(process.env.SESSION_TTL_MINUTES ?? 30) * 60_000),

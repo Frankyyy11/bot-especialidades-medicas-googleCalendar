@@ -18,6 +18,8 @@ export interface GeminiOptions {
   model: string;
   fetchFn?: typeof fetch;
   baseUrl?: string;
+  /** Opcional: generationConfig.thinkingConfig.thinkingBudget (0 desactiva el razonamiento en los modelos que lo permiten). */
+  thinkingBudget?: number;
 }
 
 // verificar contra documentación oficial: esquema de respuesta (subconjunto de OpenAPI; tipos en mayúscula)
@@ -39,7 +41,7 @@ export function geminiResponseSchema(): Record<string, unknown> {
 }
 
 /** Cuerpo de `generateContent`. verificar contra documentación oficial: nombres de campos y generationConfig. */
-export function buildGeminiBody(input: AiInput): Record<string, unknown> {
+export function buildGeminiBody(input: AiInput, thinkingBudget?: number): Record<string, unknown> {
   return {
     systemInstruction: { parts: [{ text: buildSystemInstruction(input.clinic) }] },
     contents: [{ role: 'user', parts: [{ text: buildUserContent(input) }] }],
@@ -49,6 +51,8 @@ export function buildGeminiBody(input: AiInput): Record<string, unknown> {
       maxOutputTokens: 1024,
       responseMimeType: 'application/json',
       responseSchema: geminiResponseSchema(),
+      // verificar contra documentación oficial: no todos los modelos aceptan thinkingBudget (algunos usan thinkingLevel).
+      ...(thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget } } : {}),
     },
   };
 }
@@ -59,7 +63,7 @@ export function buildGeminiRequest(options: GeminiOptions, input: AiInput): { ur
   const init: RequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
-    body: JSON.stringify(buildGeminiBody(input)),
+    body: JSON.stringify(buildGeminiBody(input, options.thinkingBudget)),
   };
   if (input.signal) init.signal = input.signal;
   return { url: `${options.baseUrl ?? GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:generateContent`, init };

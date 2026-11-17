@@ -30,7 +30,8 @@ export async function interpretWithRetry(provider: AiProvider, input: AiInput, t
     return await attempt(provider, input, timeoutMs);
   } catch (first) {
     const error = toAiError(first);
-    if (!error.retryable) throw error;
+    // Un tiempo agotado no se reintenta: duplicaría la espera del paciente. El resto (red, 5xx, JSON) sí, una vez.
+    if (!error.retryable || error.kind === 'timeout') throw error;
     try {
       return await attempt(provider, input, timeoutMs);
     } catch (second) {

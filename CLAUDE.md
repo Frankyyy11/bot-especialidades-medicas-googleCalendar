@@ -59,6 +59,7 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 17. **Conversación a mitad de un paso.** Una respuesta conversacional (frase válida + `M.continueStep`, botón `cont:paso`) no cambia el estado, no repite la lista y no cuenta como fallo. En `AGENDAR_CONFIRMAR` y `CITAS_CONFIRMAR` la frase nunca va junto al resumen, y `confirmar`/`negar` de la IA se ignoran ahí.
 
 18. **Horarios sugeridos.** Si el paciente ya indicó franja u hora, `showHours` muestra primero 3 horarios reales (los más cercanos a lo pedido) y "Ver más horarios" abre la lista completa; cualquier hora real del día se sigue aceptando escrita.
+19. **Intérprete local primero.** Con Gemini activo, `Bot` recibe `ai.local` (reglas de `src/ai/fake.ts`): una reserva clara se resuelve al instante sin llamar a Gemini y, si Gemini falla o tarda, se usa lo que entendió el intérprete local (evento `ia_local`). Su salida pasa por las mismas validaciones y guardas. Un tiempo agotado no se reintenta.
 
 ## Convenciones
 
