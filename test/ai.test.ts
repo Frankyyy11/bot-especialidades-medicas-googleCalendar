@@ -446,3 +446,21 @@ describe('simulador con IA simulada (guion de test/fixtures)', () => {
     expect(botLines).not.toMatch(/gratis|está confirmada|ya agend/i); // la inyección no tuvo efecto
   });
 });
+
+describe('IA: frase con especialidad mal escrita y día', () => {
+  it('va directo a los horarios del día pedido, sin volver a preguntar la especialidad', async () => {
+    const h = createHarness({ ai: new FakeAiProvider() });
+    const replies = await h.say('Quiero agendar una cita con cardiologica el miercoles de esta semana');
+    const list = lastList(replies);
+    expect(list.body).toContain('miércoles 18 de noviembre');
+    expect(list.rows.some((r) => r.id.startsWith('hora:'))).toBe(true);
+    expect((await h.sessions.get(PHONE))?.state).toBe('AGENDAR_HORA');
+  });
+
+  it('sin IA, la variante mal escrita igual reconoce la especialidad', async () => {
+    const h = createHarness();
+    const replies = await h.say('Quiero agendar una cita con cardiologica el miercoles de esta semana');
+    expect(allText(replies)).toContain('Cardiología');
+    expect((await h.sessions.get(PHONE))?.state).not.toBe('AGENDAR_ESPECIALIDAD');
+  });
+});

@@ -43,9 +43,13 @@ export function planAi(ctx: EngineContext, s: Session, incoming: Incoming): AiPl
   if (isMedicalQuestion(text) && !wantsToBook(text)) return 'skip';
 
   const startsBooking = s.state === 'MENU' || s.state === 'HUMANO' || s.state === 'AGENDAR_ESPECIALIDAD';
-  if (startsBooking && matchSpecialties(text, ctx.clinic.especialidades).length === 1) {
+  // Si el mensaje pide cita y trae más datos (día, franja, hora o varias palabras), se consulta la IA
+  // antes, aunque las reglas no hayan reconocido la especialidad: así no se pierde lo que el paciente ya dijo.
+  if (startsBooking && matchSpecialties(text, ctx.clinic.especialidades).length <= 1) {
     const bookingish = detectMenuIntent(text) === 'agendar' || wantsToBook(text);
-    if (DATE_HINT.test(norm) || (bookingish && norm.split(' ').length >= 5)) return 'refine';
+    const hasSpecialty = matchSpecialties(text, ctx.clinic.especialidades).length === 1;
+    if ((hasSpecialty || bookingish) && DATE_HINT.test(norm)) return 'refine';
+    if (bookingish && norm.split(' ').length >= 5) return 'refine';
   }
   return 'fallback';
 }

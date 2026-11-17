@@ -178,12 +178,30 @@ export function matchDoctors(
 
 // --- Especialidades --------------------------------------------------------
 
-/** Especialidades cuyo nombre o palabras clave aparecen en el texto. */
+/** Longitud del prefijo común de dos palabras. */
+function commonPrefix(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  return i;
+}
+
+/**
+ * Coincidencia tolerante a variantes y errores de escritura: "cardiologica", "cardiologos" o "pediatrico"
+ * comparten casi toda la raíz con la palabra clave. Solo palabras largas, para no confundir términos cortos.
+ */
+function fuzzyKeyMatch(tokens: readonly string[], key: string): boolean {
+  if (key.includes(' ') || key.length < 7) return false;
+  const needed = Math.max(6, key.length - 3);
+  return tokens.some((t) => t.length >= 7 && commonPrefix(t, key) >= needed);
+}
+
+/** Especialidades cuyo nombre o palabras clave aparecen en el texto (con tolerancia a variantes si no hay coincidencia exacta). */
 export function matchSpecialties<T extends Especialidad>(text: string, specialties: readonly T[]): T[] {
   const norm = normalize(text);
   if (!norm) return [];
-  return specialties.filter((spec) => {
-    const keys = [spec.nombre, ...spec.palabrasClave].map(normalize).filter(Boolean);
-    return keys.some((key) => hasPhrase(norm, key));
-  });
+  const keysOf = (spec: T): string[] => [spec.nombre, ...spec.palabrasClave].map(normalize).filter(Boolean);
+  const exact = specialties.filter((spec) => keysOf(spec).some((key) => hasPhrase(norm, key)));
+  if (exact.length > 0) return exact;
+  const tokens = norm.split(' ');
+  return specialties.filter((spec) => keysOf(spec).some((key) => fuzzyKeyMatch(tokens, key)));
 }

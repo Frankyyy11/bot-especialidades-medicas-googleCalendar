@@ -118,3 +118,19 @@ describe('especialidades', () => {
     expect(matchSpecialties('hola', clinic.especialidades)).toEqual([]);
   });
 });
+
+describe('matchSpecialties: variantes y errores de escritura', () => {
+  const specs = [
+    { id: 'cardiologia', nombre: 'Cardiología', palabrasClave: ['cardiologia', 'cardiologo', 'corazon'] },
+    { id: 'pediatria', nombre: 'Pediatría', palabrasClave: ['pediatria', 'pediatra', 'ninos'] },
+  ];
+  it('reconoce variantes cercanas', () => {
+    expect(matchSpecialties('cita con cardiologica', specs).map((s) => s.id)).toEqual(['cardiologia']);
+    expect(matchSpecialties('consulta pediatrica', specs).map((s) => s.id)).toEqual(['pediatria']);
+  });
+  it('no inventa coincidencias con palabras cortas o distintas', () => {
+    expect(matchSpecialties('odontologia no tiene', specs)).toEqual([]);
+    expect(matchSpecialties('quiero una cita', specs)).toEqual([]);
+    expect(matchSpecialties('cardio', specs)).toEqual([]);
+  });
+});
