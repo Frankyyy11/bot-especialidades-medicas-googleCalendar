@@ -1,6 +1,8 @@
 // Proveedor Gemini con `fetch` simulado (sin red). OJO: estas pruebas verifican que el código cumple lo que
-// ESTE repositorio supone de la API; no prueban que la API real lo acepte (nunca se llamó a Gemini real).
+// ESTE repositorio supone de la API, no la API real. La forma de la petición se comprobó aparte contra el
+// servicio real el 2026-11-16 (ver docs/IA.md); aquí nunca se usa la red.
 import { describe, expect, it, vi } from 'vitest';
+import { FakeAiProvider } from '../src/ai/fake.js';
 import { createAiProvider } from '../src/ai/index.js';
 import { buildGeminiBody, buildGeminiRequest, GeminiProvider, parseGeminiResponse } from '../src/ai/gemini.js';
 import { AiError, type AiInput } from '../src/ai/provider.js';
@@ -42,6 +44,13 @@ describe('petición a Gemini', () => {
     expect(schema.properties.intent.enum).toContain('agendar');
     expect(Object.keys(schema.properties)).toEqual(['intent', 'especialidadId', 'medicoId', 'fecha', 'franja', 'hora', 'noDisponible', 'respuestaBreve']);
     expect(body.generationConfig.temperature).toBe(0);
+  });
+
+  it('thinkingLevel: solo se envía si está configurado, y nunca thinkingBudget', () => {
+    expect(body.generationConfig.thinkingConfig).toBeUndefined();
+    const withLevel = JSON.parse(buildGeminiRequest({ apiKey: KEY, model: 'm', thinkingLevel: 'minimal' }, input).init.body as string);
+    expect(withLevel.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+    expect(JSON.stringify(withLevel)).not.toContain('thinkingBudget');
   });
 
   it('el cuerpo no contiene teléfono, nombre ni la key', () => {
@@ -118,6 +127,18 @@ describe('GeminiProvider con fetch simulado', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it('un 503 lento no duplica la espera: el reintento solo usa el tiempo que queda', async () => {
+    const slow503 = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return new Response('', { status: 503 });
+    });
+    const provider = new GeminiProvider({ apiKey: KEY, model: 'm', fetchFn: slow503 as unknown as typeof fetch });
+    const started = Date.now();
+    await expect(interpretWithRetry(provider, input, 150)).rejects.toMatchObject({ kind: 'http' });
+    expect(slow503).toHaveBeenCalledTimes(1); // ya no queda tiempo útil para otro intento
+    expect(Date.now() - started).toBeLessThan(150 + 100);
+  });
+
   it('nunca más de un reintento', async () => {
     const fetchFn = vi.fn(async () => new Response('', { status: 500 }));
     const provider = new GeminiProvider({ apiKey: KEY, model: 'm', fetchFn: fetchFn as unknown as typeof fetch });
@@ -159,6 +180,47 @@ describe('Gemini integrado al bot (fetch simulado)', () => {
     expect(replies).toEqual(expected);
   });
 
+  // Respuesta real de Gemini cuando el modelo está saturado (vista el 2026-11-16).
+  const highDemand = () =>
+    jsonResponse({ error: { code: 503, status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.' } }, 503);
+  const TECHNICAL = /high demand|UNAVAILABLE|503|error|timeout|inteligencia|IA|Gemini/i;
+
+  it('503 "high demand" con intérprete local: el paciente recibe la respuesta local y no nota el fallo', async () => {
+    const fetchFn = vi.fn(async () => highDemand());
+    const h = createHarness({ ai: new GeminiProvider({ apiKey: KEY, model: 'm', fetchFn: fetchFn as unknown as typeof fetch }), aiLocal: new FakeAiProvider() });
+    await h.say('hola');
+    await h.pick('menu:agendar');
+
+    const missing = await h.say('Odontologia no tiene?');
+    expect(fetchFn).toHaveBeenCalledTimes(2); // intento + un reintento, ambos con 503
+    expect(allText(missing)).toContain('no contamos con esa especialidad');
+    expect(allText(missing)).not.toMatch(TECHNICAL);
+    expect((await h.sessions.get(PHONE))?.failures).toBe(0);
+
+    const payment = await h.say('¿puedo pagar con tarjeta o es solo efectivo?');
+    expect(allText(payment)).toContain('Formas de pago');
+    expect(allText(payment)).not.toMatch(TECHNICAL);
+    expect((await h.sessions.get(PHONE))?.state).toBe('AGENDAR_ESPECIALIDAD'); // sigue en su paso
+  });
+
+  it('503 "high demand" y el intérprete local tampoco entiende: "no entendido" amable, sin error técnico', async () => {
+    const h = createHarness({ ai: new GeminiProvider({ apiKey: KEY, model: 'm', fetchFn: (async () => highDemand()) as unknown as typeof fetch }), aiLocal: new FakeAiProvider() });
+    await h.say('hola');
+    const replies = await h.say('asdf qwer zxcv');
+    expect(allText(replies)).toContain('no estoy seguro de haberle entendido');
+    expect(allText(replies)).not.toMatch(TECHNICAL);
+  });
+
+  it('un 503 seguido de una respuesta buena se recupera sin que el paciente lo note', async () => {
+    let n = 0;
+    const fetchFn = vi.fn(async () => (n++ === 0 ? highDemand() : jsonResponse(geminiBody({ intent: 'otro', noDisponible: 'especialidad' }))));
+    const h = createHarness({ ai: new GeminiProvider({ apiKey: KEY, model: 'm', fetchFn: fetchFn as unknown as typeof fetch }) });
+    await h.say('hola');
+    const replies = await h.say('y para la vista hay algo');
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(allText(replies)).toContain('no contamos con esa especialidad');
+  });
+
   it('JSON inválido o bloqueo de seguridad: caída a reglas, sin errores para el paciente', async () => {
     for (const response of [
       () => jsonResponse({ candidates: [{ content: { parts: [{ text: 'esto no es json' }] } }] }),
@@ -188,6 +250,31 @@ describe('configuración de la IA', () => {
     const env = loadEnv({ AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'k', GEMINI_MODEL: 'm' });
     expect(createAiProvider(env)).toBeInstanceOf(GeminiProvider);
     expect(() => loadEnv({ AI_PROVIDER: 'otra' })).toThrow();
+  });
+
+  it('GEMINI_THINKING_LEVEL es opcional, sin valor por defecto, y la variable vieja ya no existe', () => {
+    const base = { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'k', GEMINI_MODEL: 'm' };
+    expect(loadEnv(base).GEMINI_THINKING_LEVEL).toBeUndefined();
+    expect(loadEnv({ ...base, GEMINI_THINKING_LEVEL: '' }).GEMINI_THINKING_LEVEL).toBeUndefined();
+    expect(loadEnv({ ...base, GEMINI_THINKING_LEVEL: ' Minimal ' }).GEMINI_THINKING_LEVEL).toBe('minimal');
+    expect(() => loadEnv({ ...base, GEMINI_THINKING_LEVEL: '0' })).toThrow(/GEMINI_THINKING_LEVEL/);
+    expect(loadEnv({ ...base, GEMINI_THINKING_BUDGET: '0' })).not.toHaveProperty('GEMINI_THINKING_BUDGET');
+
+    // El nivel configurado llega tal cual a la petición.
+    const sent: string[] = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      sent.push(init.body as string);
+      return jsonResponse(geminiBody({ intent: 'saludo' }));
+    }) as unknown as typeof fetch;
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchFn;
+    try {
+      return createAiProvider(loadEnv({ ...base, GEMINI_THINKING_LEVEL: 'low' }))!
+        .interpret(input)
+        .then(() => expect(JSON.parse(sent[0]!).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' }));
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it('fake no necesita credenciales', () => {

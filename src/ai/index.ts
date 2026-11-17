@@ -4,7 +4,7 @@ import { GeminiProvider } from './gemini.js';
 import type { AiProvider } from './provider.js';
 
 /** `undefined` con AI_PROVIDER=none: el bot funciona solo con reglas, como antes. */
-export function createAiProvider(env: Pick<Env, 'AI_PROVIDER' | 'GEMINI_API_KEY' | 'GEMINI_MODEL'> & Partial<Pick<Env, 'GEMINI_THINKING_BUDGET'>>): AiProvider | undefined {
+export function createAiProvider(env: Pick<Env, 'AI_PROVIDER' | 'GEMINI_API_KEY' | 'GEMINI_MODEL'> & Partial<Pick<Env, 'GEMINI_THINKING_LEVEL'>>): AiProvider | undefined {
   switch (env.AI_PROVIDER) {
     case 'none':
       return undefined;
@@ -17,7 +17,7 @@ export function createAiProvider(env: Pick<Env, 'AI_PROVIDER' | 'GEMINI_API_KEY'
       return new GeminiProvider({
         apiKey: env.GEMINI_API_KEY,
         model: env.GEMINI_MODEL,
-        ...(env.GEMINI_THINKING_BUDGET !== undefined ? { thinkingBudget: env.GEMINI_THINKING_BUDGET } : {}),
+        ...(env.GEMINI_THINKING_LEVEL ? { thinkingLevel: env.GEMINI_THINKING_LEVEL } : {}),
       });
     }
   }

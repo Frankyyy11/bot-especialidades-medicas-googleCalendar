@@ -1,9 +1,10 @@
 // Proveedor Gemini por REST con fetch (sin SDK). API key en el encabezado x-goog-api-key, nunca en la URL.
 //
-// IMPORTANTE: nunca se probó contra el servicio real. La forma de la petición y de la respuesta
-// (endpoint, nombres de campos, esquema de salida) está escrita de memoria y DEBE verificarse contra
-// la documentación oficial: https://ai.google.dev/api/generate-content
-// Las funciones marcadas "verificar contra documentación oficial" están aisladas para ajustarlas fácil.
+// Verificado contra el servicio real el 2026-11-16 con gemini-3.5-flash-lite y gemini-3.1-flash-lite: ruta,
+// encabezado, systemInstruction, responseMimeType + responseSchema y el parseo de la respuesta funcionan.
+// Sigue sin verse en una respuesta real: partes de razonamiento (`thought`) y los bloqueos de seguridad
+// (`promptFeedback.blockReason`, `finishReason` de bloqueo). La API cambia: ante un fallo nuevo, revise
+// https://ai.google.dev/api/generate-content. Las funciones de abajo están aisladas para ajustarlas fácil.
 
 import { parseInterpretation } from './guards.js';
 import { AI_INTENTS, NO_DISPONIBLE, AiError, type AiInput, type AiProvider, type Interpretation } from './provider.js';
@@ -18,8 +19,11 @@ export interface GeminiOptions {
   model: string;
   fetchFn?: typeof fetch;
   baseUrl?: string;
-  /** Opcional: generationConfig.thinkingConfig.thinkingBudget (0 desactiva el razonamiento en los modelos que lo permiten). */
-  thinkingBudget?: number;
+  /**
+   * Opcional: generationConfig.thinkingConfig.thinkingLevel ("minimal", "low", "medium", "high"...).
+   * Sin valor no se envía thinkingConfig y el modelo usa su nivel por defecto. Los niveles válidos dependen del modelo.
+   */
+  thinkingLevel?: string;
 }
 
 // verificar contra documentación oficial: esquema de respuesta (subconjunto de OpenAPI; tipos en mayúscula)
@@ -41,7 +45,7 @@ export function geminiResponseSchema(): Record<string, unknown> {
 }
 
 /** Cuerpo de `generateContent`. verificar contra documentación oficial: nombres de campos y generationConfig. */
-export function buildGeminiBody(input: AiInput, thinkingBudget?: number): Record<string, unknown> {
+export function buildGeminiBody(input: AiInput, thinkingLevel?: string): Record<string, unknown> {
   return {
     systemInstruction: { parts: [{ text: buildSystemInstruction(input.clinic) }] },
     contents: [{ role: 'user', parts: [{ text: buildUserContent(input) }] }],
@@ -51,8 +55,9 @@ export function buildGeminiBody(input: AiInput, thinkingBudget?: number): Record
       maxOutputTokens: 1024,
       responseMimeType: 'application/json',
       responseSchema: geminiResponseSchema(),
-      // verificar contra documentación oficial: no todos los modelos aceptan thinkingBudget (algunos usan thinkingLevel).
-      ...(thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget } } : {}),
+      // Comprobado el 2026-11-16: gemini-3.5-flash-lite acepta thinkingLevel "minimal" y "low" y rechaza
+      // thinkingBudget (HTTP 400); gemini-3.8-flash rechaza "minimal". Un nivel no admitido da HTTP 400.
+      ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
     },
   };
 }
@@ -63,7 +68,7 @@ export function buildGeminiRequest(options: GeminiOptions, input: AiInput): { ur
   const init: RequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
-    body: JSON.stringify(buildGeminiBody(input, options.thinkingBudget)),
+    body: JSON.stringify(buildGeminiBody(input, options.thinkingLevel)),
   };
   if (input.signal) init.signal = input.signal;
   return { url: `${options.baseUrl ?? GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:generateContent`, init };

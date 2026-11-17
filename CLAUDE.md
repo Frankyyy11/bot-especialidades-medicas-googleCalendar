@@ -59,7 +59,7 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 17. **Conversación a mitad de un paso.** Una respuesta conversacional (frase válida + `M.continueStep`, botón `cont:paso`) no cambia el estado, no repite la lista y no cuenta como fallo. En `AGENDAR_CONFIRMAR` y `CITAS_CONFIRMAR` la frase nunca va junto al resumen, y `confirmar`/`negar` de la IA se ignoran ahí.
 
 18. **Horarios sugeridos.** Si el paciente ya indicó franja u hora, `showHours` muestra primero 3 horarios reales (los más cercanos a lo pedido) y "Ver más horarios" abre la lista completa; cualquier hora real del día se sigue aceptando escrita.
-19. **Intérprete local primero.** Con Gemini activo, `Bot` recibe `ai.local` (reglas de `src/ai/fake.ts`): una reserva clara se resuelve al instante sin llamar a Gemini y, si Gemini falla o tarda, se usa lo que entendió el intérprete local (evento `ia_local`). Su salida pasa por las mismas validaciones y guardas. Un tiempo agotado no se reintenta.
+19. **Intérprete local primero.** Con Gemini activo, `Bot` recibe `ai.local` (reglas de `src/ai/fake.ts`): una reserva clara se resuelve al instante sin llamar a Gemini y, si Gemini falla o tarda, se usa lo que entendió el intérprete local (evento `ia_local`). Su salida pasa por las mismas validaciones y guardas. Un tiempo agotado no se reintenta. Un fallo transitorio (503 "high demand", red) se reintenta una vez y solo con el tiempo que quede: la espera total nunca pasa de `AI_TIMEOUT_MS` (`src/ai/safe.ts`).
 
 ## Convenciones
 
@@ -75,5 +75,11 @@ Antes de dar algo por terminado: `npm run build && npm test`.
 - Formato del evento de eco de coexistencia (`smb_message_echoes`): aislado en `parseEchoRecipients` (`src/whatsapp/parser.ts`).
 - Versión vigente de Graph API (`WHATSAPP_API_VERSION`, valor por defecto de ejemplo).
 - Requisitos de coexistencia en Costa Rica (`docs/WHATSAPP.md`).
-- **Gemini (`src/ai/gemini.ts`): nunca se probó contra el servicio real.** Verificar ruta `v1beta/models/{modelo}:generateContent`, encabezado `x-goog-api-key`, `systemInstruction`, `generationConfig` (`responseMimeType`, `responseSchema` con tipos en mayúscula), formato de la respuesta y que el modelo elegido admita salida estructurada (`docs/IA.md`).
+- **Gemini (`src/ai/gemini.ts`)**: la petición y el parseo ya se verificaron contra el servicio real (ver "Verificado contra servicios reales"). Sigue pendiente, porque nunca se vio en una respuesta real: bloqueos de seguridad (`promptFeedback.blockReason`, `finishReason` de bloqueo), partes de razonamiento (`thought`), cuota HTTP 429 y el comportamiento bajo carga. Tampoco hay una evaluación sistemática de qué tan bien entiende el modelo.
 - Autenticación real con cuenta de servicio de Google: la función `createServiceAccountTokenProvider` usa `google-auth-library`, pero las pruebas la sustituyen por un token falso (no se probó contra Google real).
+
+## Verificado contra servicios reales
+
+- **Gemini, 16 de noviembre de 2026, con `gemini-3.5-flash-lite` (modelo recomendado) y `gemini-3.1-flash-lite`**: ruta `v1beta/models/{modelo}:generateContent`, encabezado `x-goog-api-key`, `systemInstruction`, `responseMimeType` + `responseSchema` (tipos en mayúscula; sin esquema el modelo cambia la estructura), `thinkingConfig.thinkingLevel`, respuesta en `candidates[].content.parts[].text` y errores HTTP 400/404/503. Latencia de 0,6 a 1,2 s. Detalle y tabla de modelos en `docs/IA.md` ("Velocidad").
+- Modelos a evitar según esa prueba: `gemini-3.8-flash` (503 "high demand" o sin respuesta en 60 s; fue la causa de los timeouts) y `gemini-2.5-flash-lite` (HTTP 404 para keys nuevas). `thinkingBudget` da HTTP 400 en 3.5-flash-lite: por eso la opción es `GEMINI_THINKING_LEVEL`, opcional y sin valor por defecto.
+- Las pruebas automáticas siguen sin usar red. Para repetir una verificación real use el simulador con `AI_PROVIDER=gemini` y solo datos ficticios.

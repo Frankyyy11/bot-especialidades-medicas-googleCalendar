@@ -73,7 +73,7 @@ curl -s -H "x-goog-api-key: $GEMINI_API_KEY" \
   "https://generativelanguage.googleapis.com/v1beta/models" | grep '"name"'
 ```
 
-Use el nombre sin el prefijo `models/` (ambas formas funcionan). Conviene un modelo rápido y económico que admita salida JSON con esquema; verifique en la documentación oficial (https://ai.google.dev/gemini-api/docs/models) cuáles lo soportan y cuáles están vigentes.
+Use el nombre sin el prefijo `models/` (ambas formas funcionan). Conviene un modelo rápido y económico que admita salida JSON con esquema. El modelo probado con este bot es **`gemini-3.5-flash-lite`** (16 de noviembre de 2026; ver "Velocidad" más abajo). Que un modelo aparezca en el listado no garantiza que acepte llamadas: pruébelo en el simulador. Revise en la documentación oficial (https://ai.google.dev/gemini-api/docs/models) cuáles están vigentes.
 
 ## Variables
 
@@ -82,15 +82,43 @@ Use el nombre sin el prefijo `models/` (ambas formas funcionan). Conviene un mod
 | `AI_PROVIDER` | `none` | `none`, `gemini` o `fake` (simulada, para pruebas y simulador) |
 | `GEMINI_API_KEY` | – | Key de la API; viaja en el encabezado `x-goog-api-key`, nunca en la URL |
 | `GEMINI_MODEL` | – (obligatoria con `gemini`) | Modelo a usar |
-| `GEMINI_THINKING_BUDGET` | – | Opcional. `0` = sin razonamiento (más rápido) en los modelos que lo admiten |
-| `AI_TIMEOUT_MS` | `6000` | Tiempo máximo de espera; un tiempo agotado no se reintenta (otros fallos transitorios sí, una vez) |
+| `GEMINI_THINKING_LEVEL` | – (sin valor por defecto) | Opcional. Nivel de razonamiento (`thinkingLevel`): `minimal`, `low`, `medium`, `high`. Los niveles válidos dependen del modelo; vacío = el del modelo |
+| `AI_TIMEOUT_MS` | `6000` | Tiempo máximo **total** de espera. Un tiempo agotado no se reintenta; otros fallos transitorios (503, red) sí, una vez y solo con el tiempo que quede |
 | `AI_MAX_CALLS_PER_PHONE_PER_DAY` | `40` | Tope de llamadas por teléfono por día (hora de Costa Rica) |
 
 ## Velocidad: intérprete local y tiempos de espera
 
 - Con `AI_PROVIDER=gemini` el bot lleva además un **intérprete local por reglas** (instantáneo, sin red). Si entiende por sí solo una reserva con sus datos ("cardiología el miércoles a las 4"), responde de inmediato **sin llamar a Gemini**. Si Gemini falla o tarda, se usa lo que haya entendido el intérprete local. Gemini queda para lo que las reglas no entienden (preguntas abiertas, frases poco comunes).
-- Un tiempo agotado **no se reintenta** (duplicaría la espera del paciente): la espera máxima es `AI_TIMEOUT_MS`.
-- Si ve `IA: falló (timeout ...)` seguido: pruebe un modelo más liviano (los `flash-lite`), suba `AI_TIMEOUT_MS` (p. ej. 10000) o desactive el razonamiento con `GEMINI_THINKING_BUDGET=0` en los modelos que lo admiten (verificar contra la documentación oficial; si el modelo no lo acepta responderá con error HTTP y el bot seguirá con reglas).
+- Un tiempo agotado **no se reintenta** (duplicaría la espera del paciente). Los fallos transitorios (HTTP 503, 429, red) se reintentan **una vez**, pero el reintento solo dispone del tiempo que quede: la espera máxima total es siempre `AI_TIMEOUT_MS`.
+
+### Modelo probado y tiempos medidos (16 de noviembre de 2026)
+
+Mediciones con llamadas reales a `generateContent`, usando la petición exacta del bot (unos 1 285 tokens de entrada, con esquema de salida) y datos ficticios. Son pocas llamadas desde una sola conexión: sirven de referencia, no de garantía, y la disponibilidad de los modelos cambia.
+
+| Modelo | Resultado | Recomendación |
+|---|---|---|
+| `gemini-3.5-flash-lite` | Responde bien en 0,6 a 0,9 s. Una llamada de varias dio HTTP 503 ("high demand") y la siguiente funcionó. | **Recomendado**: es el modelo con el que se verificó el bot. |
+| `gemini-3.1-flash-lite` | Responde bien en 0,7 a 1,2 s. | Alternativa válida. |
+| `gemini-3.8-flash` | De 9 llamadas, **ninguna** respondió bien: 5 dieron HTTP 503 ("high demand") tras 1,5 a 10 s, 3 no contestaron en 60 s y 1 fue rechazada por el nivel de razonamiento. | **Evítelo** para este bot: es la causa de los `IA: falló (timeout ...)`. Subir `AI_TIMEOUT_MS` no lo arregla. |
+| `gemini-2.5-flash-lite` | HTTP 404 en ~150 ms: "no longer available to new users". | No usar. Aparece en el listado de modelos pero no acepta llamadas de keys nuevas. |
+
+Qué significa cada mensaje del simulador (o el evento `ia_fallo` en los logs):
+
+- `IA: falló (http, ~150 ms)`: el modelo rechaza la llamada de inmediato. Casi siempre es el nombre del modelo (ya no disponible, HTTP 404) o un `GEMINI_THINKING_LEVEL` que ese modelo no admite (HTTP 400). Cambie `GEMINI_MODEL` o quite el nivel.
+- `IA: falló (http, varios segundos)`: HTTP 503, el modelo está saturado. Es temporal; si es constante, cambie de modelo.
+- `IA: falló (timeout ...)`: el modelo no contestó dentro de `AI_TIMEOUT_MS`. Use un `flash-lite`; subir el tiempo solo hace esperar más al paciente.
+
+En todos los casos el paciente no ve ningún error: el bot usa lo que entendió el intérprete local o, si tampoco entendió, las reglas de siempre.
+
+### Nivel de razonamiento (`GEMINI_THINKING_LEVEL`)
+
+Es opcional y normalmente conviene dejarlo vacío: con `gemini-3.5-flash-lite`, `minimal` y `low` tardaron lo mismo que sin definirlo. Comprobado el 16 de noviembre de 2026:
+
+- `gemini-3.5-flash-lite` acepta `minimal` y `low`. **No** acepta el campo antiguo `thinkingBudget` (HTTP 400), por eso se quitó la variable `GEMINI_THINKING_BUDGET`.
+- `gemini-3.8-flash` rechaza `minimal` (HTTP 400, "not supported for this model").
+- En `gemini-3.1-flash-lite`, `low` agregó tokens de razonamiento y la llamada pasó de ~1,0 s a ~1,5 s.
+
+Un nivel que el modelo no admite hace fallar **todas** las llamadas (el bot sigue con reglas y el simulador muestra `IA: falló (http ...)`), así que pruébelo en el simulador antes de dejarlo puesto.
 
 ## Cómo apagarla
 
@@ -142,4 +170,6 @@ Tiempo agotado, error HTTP, JSON inválido, bloqueo de seguridad o cuota: un rei
 - Si el paciente da fecha u hora pero no especialidad ("quiero cita el jueves"), el bot pide la especialidad y **no recuerda** el día pedido.
 - La IA no resuelve ambigüedades por sí sola: ante varias especialidades en un mismo mensaje, se descarta la especialidad.
 - La calidad real del entendimiento depende del modelo; las pruebas automáticas usan IA simulada y **no miden** eso.
-- **Verificar contra la documentación oficial** (nunca se llamó a Gemini real desde este repositorio): la ruta `v1beta/models/{modelo}:generateContent`, el encabezado `x-goog-api-key`, los campos `systemInstruction`, `generationConfig.responseMimeType`/`responseSchema`, el formato de la respuesta (`candidates[].content.parts[].text`, `finishReason`, `promptFeedback.blockReason`) y que el modelo elegido admita salida estructurada. Todo está aislado en `src/ai/gemini.ts` (`buildGeminiBody`, `buildGeminiRequest`, `geminiResponseSchema`, `parseGeminiResponse`).
+- **Verificado contra el servicio real** (16 de noviembre de 2026, `gemini-3.5-flash-lite` y `gemini-3.1-flash-lite`): la ruta `v1beta/models/{modelo}:generateContent`, el encabezado `x-goog-api-key`, `systemInstruction`, `generationConfig.responseMimeType` + `responseSchema` (tipos en mayúscula, `enum`), `thinkingConfig.thinkingLevel`, el formato de la respuesta (`candidates[].content.parts[].text`, `finishReason: STOP`) y los errores HTTP 400, 404 y 503. Sin `responseSchema` el modelo devuelve estructuras distintas a las esperadas: el esquema es necesario.
+- **Sigue sin verificarse con una respuesta real**: los bloqueos de seguridad (`promptFeedback.blockReason` y los `finishReason` de bloqueo), las partes de razonamiento marcadas con `thought`, el error de cuota (HTTP 429) y el comportamiento con muchas llamadas seguidas. Todo eso está aislado en `src/ai/gemini.ts` (`buildGeminiBody`, `buildGeminiRequest`, `geminiResponseSchema`, `parseGeminiResponse`). La documentación oficial indica además que `temperature` se ignora en silencio en los modelos 3.6 Flash y posteriores.
+- La calidad del entendimiento con Gemini real solo se observó en un puñado de frases; no hay una evaluación sistemática.

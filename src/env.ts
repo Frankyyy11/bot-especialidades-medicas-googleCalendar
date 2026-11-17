@@ -25,8 +25,15 @@ const schema = z.object({
   GEMINI_API_KEY: optionalText,
   // Sin valor por defecto a propósito: los modelos cambian seguido (ver docs/IA.md para listarlos).
   GEMINI_MODEL: optionalText,
-  /** Opcional: presupuesto de razonamiento del modelo (0 = sin razonamiento, más rápido). Solo modelos que lo admiten. */
-  GEMINI_THINKING_BUDGET: z.preprocess((v) => (v === '' || v === undefined ? undefined : v), z.coerce.number().int().min(0).optional()),
+  /**
+   * Opcional y sin valor por defecto: nivel de razonamiento (generationConfig.thinkingConfig.thinkingLevel), p. ej.
+   * minimal | low | medium | high. Los niveles válidos dependen del modelo: uno no admitido da HTTP 400 en cada
+   * llamada y el bot sigue solo con reglas (ver docs/IA.md).
+   */
+  GEMINI_THINKING_LEVEL: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toLowerCase() : undefined),
+    z.string().regex(/^[a-z]+$/, 'Use un nivel como minimal, low, medium o high').optional(),
+  ),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
   AI_MAX_CALLS_PER_PHONE_PER_DAY: z.coerce.number().int().min(0).default(40),
 
