@@ -2,7 +2,7 @@
 
 Bot de atención al cliente por WhatsApp (Cloud API oficial de Meta, en **modo coexistencia**) para un centro médico de especialidades en Costa Rica. Atiende solo dos cosas: **agendar citas** y **consultar servicios** (especialidades, precios, horario y ubicación).
 
-- Funciona con menús, botones y listas de WhatsApp, más detección de intención por palabras clave. Opcionalmente (`AI_PROVIDER=gemini`) una **capa de IA** entiende texto libre y suena más natural, sin decidir nada: disponibilidad y citas siguen en el código (ver `docs/IA.md`). Con la IA apagada (valor por defecto) el bot funciona solo con reglas.
+- Funciona con menús, botones y listas de WhatsApp, más detección de intención por palabras clave. Opcionalmente (`AI_PROVIDER=gemini`) una **capa de IA** entiende texto libre y suena más natural, sin decidir nada: disponibilidad y citas siguen en el código (ver `docs/IA.md`). Con la IA apagada (valor por defecto) el bot funciona solo con reglas. También opcional y apagada por defecto: **transcripción de notas de voz** (`AUDIO_TRANSCRIPTION=gemini`, ver `docs/AUDIO.md`).
 - Todo el texto al paciente va en español de Costa Rica, con trato de "usted".
 - La agenda es **provisional en Google Calendar**, detrás de la interfaz `AgendaProvider`, porque más adelante se cambiará a Siku (ver `docs/SIKU.md`).
 
@@ -83,6 +83,7 @@ Detalle comentado en `.env.example`. Resumen:
 | `WHATSAPP_PHONE_NUMBER_ID` | – | Id del número en Meta |
 | `WHATSAPP_API_VERSION` | `v23.0` | Versión de Graph API. Es un valor de partida: **revise cuál es la vigente** |
 | `AI_PROVIDER` | `none` | Capa de IA: `none`, `gemini` o `fake` (ver `docs/IA.md`) |
+| `AUDIO_TRANSCRIPTION` | `off` | Notas de voz: `off`, `gemini` o `fake` (ver `docs/AUDIO.md`). También `AUDIO_MAX_SECONDS` (60) y `AUDIO_TIMEOUT_MS` (20000) |
 | `GEMINI_API_KEY` | – | Key de la API de Gemini (solo con `gemini`; nunca en el repo) |
 | `GEMINI_MODEL` | – | **Obligatoria** con `gemini`, sin valor por defecto (los modelos cambian seguido) |
 | `AI_TIMEOUT_MS` | `6000` | Tiempo máximo por intento de llamada a la IA |
@@ -115,6 +116,7 @@ Reglas que no se negocian:
 - **Urgencias**: ante palabras como "emergencia" o "dolor de pecho" indica que el canal no atiende emergencias, que llame al 9-1-1, y pasa a recepción.
 - **Privacidad**: solo recoge nombre y teléfono (cédula si `pedirCedula`). Los logs enmascaran teléfonos y no incluyen nombres, cédulas ni el texto de los mensajes.
 - **IA (si está activa)**: nunca decide ni da datos; no recibe teléfono, nombre, cédula ni datos de citas; no se llama en los pasos de nombre y cédula. En el nivel gratuito de Gemini Google puede usar los mensajes para mejorar sus productos: con pacientes reales use un proyecto con facturación habilitada (ver `docs/IA.md`).
+- **Notas de voz (si están activas)**: el audio se envía a Gemini solo para transcribirlo; no se guarda ni se registra; nunca confirma ni cancela citas ni se usa para nombre o cédula. Con pacientes reales exige nivel de pago (ver `docs/AUDIO.md`).
 
 Límites conocidos:
 
@@ -138,4 +140,4 @@ docs/             guías de Google Calendar, WhatsApp, despliegue y Siku
 test/             pruebas
 ```
 
-Más documentación: `docs/IA.md`, `docs/GOOGLE_CALENDAR.md`, `docs/WHATSAPP.md`, `docs/DESPLIEGUE.md`, `docs/SIKU.md` y `CLAUDE.md` (guía para continuar con Claude Code).
+Más documentación: `docs/IA.md`, `docs/AUDIO.md`, `docs/GOOGLE_CALENDAR.md`, `docs/WHATSAPP.md`, `docs/DESPLIEGUE.md`, `docs/SIKU.md` y `CLAUDE.md` (guía para continuar con Claude Code).

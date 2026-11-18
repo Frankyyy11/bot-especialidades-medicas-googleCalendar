@@ -1,6 +1,7 @@
 import { expect } from 'vitest';
 import { MemoryAgendaProvider } from '../src/agenda/memory.js';
 import type { AiProvider } from '../src/ai/provider.js';
+import type { AudioClip, Transcriber } from '../src/ai/transcribe.js';
 import { Bot } from '../src/bot.js';
 import { loadClinic, parseClinic, type Clinic } from '../src/config/clinic.js';
 import type { Incoming, Outgoing } from '../src/engine/types.js';
@@ -28,6 +29,10 @@ export interface HarnessOptions {
   /** Capa de IA simulada (sin red). Sin esto el bot funciona solo con reglas. */
   ai?: AiProvider;
   aiLocal?: AiProvider;
+  /** Transcriptor simulado de notas de voz. Sin esto los audios se contestan pidiendo texto. */
+  transcriber?: Transcriber;
+  audioMaxSeconds?: number;
+  audioTimeoutMs?: number;
   aiTimeoutMs?: number;
   aiMaxCallsPerDay?: number;
 }
@@ -57,6 +62,16 @@ export function createHarness(options: HarnessOptions = {}) {
           },
         }
       : {}),
+    ...(options.transcriber
+      ? {
+          audio: {
+            transcriber: options.transcriber,
+            ...(options.audioMaxSeconds !== undefined ? { maxSeconds: options.audioMaxSeconds } : {}),
+            ...(options.audioTimeoutMs !== undefined ? { timeoutMs: options.audioTimeoutMs } : {}),
+            ...(options.aiMaxCallsPerDay !== undefined ? { maxCallsPerPhonePerDay: options.aiMaxCallsPerDay } : {}),
+          },
+        }
+      : {}),
   });
 
   async function send(incoming: Incoming, phone = PHONE): Promise<Outgoing[]> {
@@ -82,6 +97,13 @@ export function createHarness(options: HarnessOptions = {}) {
     say: (text: string, phone?: string) => send({ type: 'text', text }, phone),
     pick: (id: string, phone?: string) => send({ type: 'choice', id, title: id }, phone),
     send,
+    /** Envía una nota de voz. Devuelve las respuestas y los acuses inmediatos, en el orden en que salieron. */
+    voice: async (clip: AudioClip | (() => Promise<AudioClip>) = wavClip(5), phone = PHONE) => {
+      const acks: Outgoing[] = [];
+      const replies = await bot.handleAudio(phone, { load: typeof clip === 'function' ? clip : async () => clip }, { ack: (m) => void acks.push(m) });
+      for (const reply of [...acks, ...replies]) expect(fitOutgoing(reply), 'el mensaje excede los límites de WhatsApp').toEqual(reply);
+      return { replies, acks };
+    },
   };
 }
 
@@ -119,4 +141,34 @@ export async function bookUntilSummary(h: Harness, spec = 'dermatologia', name =
   await h.pick(hour.id);
   replies = await h.say(name);
   return { replies, dayId: day.id, hourId: hour.id, date: day.id.slice(4), time: hour.id.slice(5) };
+}
+
+/** WAV PCM válido (silencio) de la duración pedida: 8 kHz, 8 bits, mono = 8000 bytes por segundo. */
+export function wavClip(seconds: number): AudioClip {
+  const size = Math.round(seconds * 8000);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + size, 4);
+  header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(8000, 24);
+  header.writeUInt32LE(8000, 28);
+  header.writeUInt16LE(1, 32);
+  header.writeUInt16LE(8, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(size, 40);
+  return { data: Buffer.concat([header, Buffer.alloc(size, 128)]), mimeType: 'audio/wav' };
+}
+
+/** Página OGG mínima con cabecera Opus cuya última posición equivale a la duración pedida (48 kHz). */
+export function oggOpusClip(seconds: number): AudioClip {
+  const page = (granule: bigint, payload: Buffer) => {
+    const head = Buffer.alloc(27);
+    head.write('OggS', 0);
+    head.writeBigUInt64LE(granule, 6);
+    return Buffer.concat([head, payload]);
+  };
+  return { data: Buffer.concat([page(0n, Buffer.from('OpusHead')), page(BigInt(Math.round(seconds * 48000)), Buffer.alloc(64))]), mimeType: 'audio/ogg; codecs=opus' };
 }

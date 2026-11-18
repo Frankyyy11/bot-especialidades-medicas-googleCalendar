@@ -37,13 +37,19 @@ const schema = z.object({
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
   AI_MAX_CALLS_PER_PHONE_PER_DAY: z.coerce.number().int().min(0).default(40),
 
+  // Notas de voz (SPEC-AUDIO.md, docs/AUDIO.md). Apagado por defecto: los audios se contestan pidiendo texto.
+  AUDIO_TRANSCRIPTION: z.enum(['off', 'gemini', 'fake']).default('off'),
+  AUDIO_MAX_SECONDS: z.coerce.number().int().positive().max(300).default(60),
+  AUDIO_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
+
   HUMAN_PAUSE_MINUTES: z.coerce.number().positive().default(120),
   SESSION_TTL_MINUTES: z.coerce.number().positive().default(30),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
 }).superRefine((env, ctx) => {
-  if (env.AI_PROVIDER !== 'gemini') return;
+  const needsGemini = [env.AI_PROVIDER === 'gemini' ? 'AI_PROVIDER=gemini' : '', env.AUDIO_TRANSCRIPTION === 'gemini' ? 'AUDIO_TRANSCRIPTION=gemini' : ''].filter(Boolean);
+  if (needsGemini.length === 0) return;
   for (const name of ['GEMINI_API_KEY', 'GEMINI_MODEL'] as const) {
-    if (!env[name]) ctx.addIssue({ code: 'custom', path: [name], message: `es obligatoria con AI_PROVIDER=gemini` });
+    if (!env[name]) ctx.addIssue({ code: 'custom', path: [name], message: `es obligatoria con ${needsGemini[0]}` });
   }
 });
 

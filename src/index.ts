@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createAgendaProvider } from './agenda/index.js';
-import { createAiProvider, createLocalInterpreter } from './ai/index.js';
+import { createAiProvider, createLocalInterpreter, createTranscriber } from './ai/index.js';
 import { createApp } from './app.js';
 import { Bot } from './bot.js';
 import { loadClinic } from './config/clinic.js';
@@ -33,6 +33,17 @@ function main(): void {
     logger.warn('ia_simulada', { aviso: 'AI_PROVIDER=fake es solo para pruebas.' });
   }
 
+  const transcriber = createTranscriber(env);
+  if (env.AUDIO_TRANSCRIPTION === 'gemini') {
+    logger.warn('audio_activo', {
+      modelo: env.GEMINI_MODEL,
+      max_segundos: env.AUDIO_MAX_SECONDS,
+      aviso: 'Las notas de voz se envian a Gemini solo para transcribirlas. Con pacientes reales use nivel de pago (facturacion habilitada). Vea docs/AUDIO.md.',
+    });
+  } else if (env.AUDIO_TRANSCRIPTION === 'fake') {
+    logger.warn('audio_simulado', { aviso: 'AUDIO_TRANSCRIPTION=fake es solo para pruebas: no transcribe de verdad.' });
+  }
+
   const sessions = new MemorySessionStore(env.SESSION_TTL_MINUTES * 60_000);
   sessions.startSweeper();
 
@@ -46,6 +57,9 @@ function main(): void {
     rateLimiter: new RateLimiter(env.RATE_LIMIT_PER_MINUTE),
     ...(aiProvider
       ? { ai: { provider: aiProvider, ...(aiLocal ? { local: aiLocal } : {}), timeoutMs: env.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: env.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
+      : {}),
+    ...(transcriber
+      ? { audio: { transcriber, maxSeconds: env.AUDIO_MAX_SECONDS, timeoutMs: env.AUDIO_TIMEOUT_MS, maxCallsPerPhonePerDay: env.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
       : {}),
   });
 

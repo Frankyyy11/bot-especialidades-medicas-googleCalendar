@@ -45,6 +45,19 @@ function parseIncoming(raw: Rec): Incoming | null {
 }
 
 /**
+ * Nota de voz o audio: `audio.id` es el id para la Media API y `audio.mime_type` su formato
+ * (las notas de voz llegan como "audio/ogg; codecs=opus"). El webhook no trae la duración.
+ * VERIFICAR CONTRA LA DOCUMENTACIÓN OFICIAL DE META: nombres de estos campos.
+ */
+function parseAudio(raw: Rec): { mediaId: string; mimeType?: string } | undefined {
+  if (str(raw.type) !== 'audio' || !isRec(raw.audio)) return undefined;
+  const mediaId = str(raw.audio.id);
+  if (!mediaId || !/^[\w.-]{1,128}$/.test(mediaId)) return undefined;
+  const mimeType = str(raw.audio.mime_type);
+  return { mediaId, ...(mimeType ? { mimeType } : {}) };
+}
+
+/**
  * Extrae mensajes entrantes del payload. Ignora `statuses` (acuses de entrega/lectura)
  * y cualquier campo distinto de "messages".
  */
@@ -61,7 +74,9 @@ export function parseIncomingMessages(body: unknown): ParsedMessage[] {
         const from = str(raw.from);
         if (!id || !from) continue;
         const message = parseIncoming(raw);
-        if (message) out.push({ id, from: digits(from), message });
+        if (!message) continue;
+        const audio = parseAudio(raw);
+        out.push({ id, from: digits(from), message, ...(audio ? { audio } : {}) });
       }
     }
   }

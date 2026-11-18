@@ -12,6 +12,8 @@ export interface EngineContext {
   confirmationMode?: ConfirmationMode;
   /** true si hay una capa de IA activa (solo cambia el aviso de privacidad del primer contacto). */
   aiEnabled?: boolean;
+  /** true si la transcripción de notas de voz está activa (aviso de privacidad y texto de "no soportado"). */
+  audioEnabled?: boolean;
 }
 
 /** Respuesta de un manejador de estado: mensajes, o `null` si no entendió, o un reintento con texto propio. */

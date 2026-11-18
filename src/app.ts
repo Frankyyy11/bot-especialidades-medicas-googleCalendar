@@ -26,10 +26,24 @@ export function createApp(options: AppOptions): Express {
       verifyToken: options.verifyToken,
       appSecret: options.appSecret,
       onEcho: (phone) => options.bot.onHumanReply(phone),
-      onMessage: async ({ id, from, message }) => {
+      onMessage: async ({ id, from, message, audio }) => {
         // Marcar como leído es opcional: si falla, no debe impedir la respuesta.
         options.sender.markRead(id).catch(() => undefined);
-        const replies = await options.bot.handle(from, message);
+        const download = options.sender.downloadMedia?.bind(options.sender);
+        const replies =
+          audio && download && options.bot.audioEnabled
+            ? await options.bot.handleAudio(
+                from,
+                {
+                  load: async (signal) => {
+                    const file = await download(audio.mediaId, signal);
+                    return { data: file.data, mimeType: audio.mimeType ?? file.mimeType };
+                  },
+                },
+                // Acuse inmediato: sale antes de descargar y transcribir.
+                { ack: (ackMessage) => options.sender.send(from, ackMessage) },
+              )
+            : await options.bot.handle(from, message);
         for (const reply of replies) {
           try {
             await options.sender.send(from, reply);

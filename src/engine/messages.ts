@@ -24,6 +24,8 @@ export const ID = {
   citas: { si: 'citas:si', no: 'citas:no' },
   /** Retoma el paso actual (vuelve a mostrar su lista o resumen) tras una respuesta conversacional. */
   continuar: 'cont:paso',
+  /** Confirmación de lo entendido en una nota de voz (no confirma citas: solo permite avanzar). */
+  audio: { si: 'audio:si', no: 'audio:no' },
 } as const;
 
 // --- Botones reutilizables --------------------------------------------------
@@ -86,13 +88,16 @@ export function describeAppointment(a: Pick<Appointment, 'date' | 'time'>, speci
 
 export const M = {
   // Bienvenida y menú
-  greeting: (clinic: Clinic, aiActive = false): Outgoing =>
+  greeting: (clinic: Clinic, aiActive = false, audioActive = false): Outgoing =>
     text(
       `¡Hola! Bienvenido(a) a *${clinic.nombre}*. Soy el asistente virtual: puedo ayudarle a agendar una cita o a consultar nuestros servicios.\n\n` +
         'Aviso de privacidad: sus datos (nombre y teléfono) se usan únicamente para gestionar su cita, conforme a la Ley 8968 de Protección de la Persona frente al Tratamiento de sus Datos Personales. ' +
         'Por favor no envíe síntomas ni información médica por este medio.\n\n' +
         (aiActive
           ? 'Para entender mejor sus mensajes, estos se procesan de forma automatizada con un servicio de inteligencia artificial.\n\n'
+          : '') +
+        (audioActive
+          ? 'Si envía una nota de voz, el audio se procesa de forma automatizada con un servicio de inteligencia artificial únicamente para convertirlo en texto, y no se guarda.\n\n'
           : '') +
         'Este canal no atiende emergencias: en ese caso llame al 9-1-1.',
     ),
@@ -116,9 +121,11 @@ export const M = {
   anythingElse: (): Outgoing => buttons('¿Le puedo ayudar con algo más?', BTN.agendar, BTN.menu),
 
   // Casos especiales
-  unsupported: (): Outgoing =>
+  unsupported: (audioActive = false): Outgoing =>
     buttons(
-      'Por este medio solo puedo atender mensajes de texto (no audios, imágenes, documentos ni ubicaciones). Puede usar el menú o hablar con recepción.',
+      audioActive
+        ? 'Por este medio solo puedo atender mensajes de texto y notas de voz (no imágenes, documentos ni ubicaciones). Puede usar el menú o hablar con recepción.'
+        : 'Por este medio solo puedo atender mensajes de texto (no audios, imágenes, documentos ni ubicaciones). Puede usar el menú o hablar con recepción.',
       BTN.verMenu,
       BTN.recepcion,
     ),
@@ -130,6 +137,37 @@ export const M = {
     return step ? buttons(step.body, { id: ID.continuar, title: step.title }, BTN.menu) : M.anythingElse();
   },
   youAreWelcome: (): Outgoing => text('Con mucho gusto.'),
+
+  // Notas de voz (SPEC-AUDIO.md)
+  audioAck: (): Outgoing => text('Recibí su audio, deme un momento.'),
+  audioFailed: (): Outgoing =>
+    buttons(
+      'Disculpe, no logré entender su audio. ¿Me lo puede escribir, o prefiere que le atienda recepción? Si se trata de una emergencia, llame al 9-1-1.',
+      BTN.recepcion,
+      BTN.verMenu,
+    ),
+  audioTooLong: (maxSeconds: number): Outgoing =>
+    buttons(
+      `Disculpe, solo puedo escuchar audios de hasta ${maxSeconds} segundos. ¿Me lo puede enviar más corto o por escrito? Si se trata de una emergencia, llame al 9-1-1.`,
+      BTN.recepcion,
+      BTN.verMenu,
+    ),
+  audioTypeInstead: (): Outgoing => text('Para proteger sus datos, este dato no lo puedo tomar de un audio. Por favor escríbalo en un mensaje.'),
+  audioUseButtons: (): Outgoing => text('Para este paso necesito su respuesta con uno de los botones (o por escrito); no puedo tomarla de un audio.'),
+  audioUnderstood: (p: { spec?: Specialty | undefined; doctor?: Doctor | undefined; date?: string | undefined; time?: string | undefined; franja?: 'manana' | 'tarde' | undefined }): Outgoing => {
+    const lines = [
+      p.spec ? `*Especialidad:* ${p.spec.nombre}` : '',
+      p.doctor ? `*Médico:* ${p.doctor.nombre}` : '',
+      p.date ? `*Día:* ${formatDateLong(p.date)}` : '',
+      p.time ? `*Hora:* ${formatTime12(p.time)}` : p.franja ? `*Horario:* ${p.franja === 'manana' ? 'por la mañana' : 'por la tarde'}` : '',
+    ].filter(Boolean);
+    return buttons(
+      `Esto fue lo que entendí de su audio:\n\n${lines.join('\n')}\n\n¿Es correcto? Todavía no se ha registrado ninguna cita.`,
+      { id: ID.audio.si, title: 'Sí, continuar' },
+      { id: ID.audio.no, title: 'No, corregir' },
+    );
+  },
+  audioDiscarded: (): Outgoing => text('De acuerdo, no hice ningún cambio. Puede enviarme otro audio o escribirlo.'),
   /** Preguntaron por algo que el centro no tiene. Todo el texto sale de la configuración, nunca de la IA. */
   notOffered: (p: { clinic: Clinic; kind: 'especialidad' | 'medico' | 'servicio'; state: State; spec?: Specialty | undefined }): Outgoing => {
     const specialties = joinNames(p.clinic.especialidades.map((e) => e.nombre));

@@ -13,6 +13,7 @@ import {
   handleCedula,
   handleConfirm,
   handleSpecialty,
+  bookFromInterpretation,
   repromptCedula,
   repromptDay,
   repromptDoctor,
@@ -32,7 +33,7 @@ import { handOffToHuman } from './states/human.js';
 import { handleMenuChoice, handleMenuText } from './states/menu.js';
 import { handleServiceDetail, handleServicesList, repromptServiceDetail, startServices } from './states/services.js';
 import { applyAssist, FREE_TEXT_STATES, type Assist } from './states/assist.js';
-import type { Incoming, Outgoing, Session } from './types.js';
+import type { Incoming, Outgoing, PendingAudio, Session } from './types.js';
 
 export type { EngineContext } from './states/common.js';
 export { planAi, type Assist, type AiPlan } from './states/assist.js';
@@ -53,21 +54,25 @@ export async function handleMessage(
   previous: Session,
   incoming: Incoming,
   assist?: Assist,
+  options: HandleOptions = {},
 ): Promise<EngineResult> {
   const s = structuredClone(previous);
   const replies: Outgoing[] = [];
   const firstContact = !s.greeted;
   if (firstContact) {
-    replies.push(M.greeting(ctx.clinic, ctx.aiEnabled ?? false));
+    replies.push(M.greeting(ctx.clinic, ctx.aiEnabled ?? false, ctx.audioEnabled ?? false));
     s.greeted = true;
   }
+  // Lo entendido en una nota de voz solo vale para el mensaje siguiente (el botón de confirmación).
+  const pendingAudio = s.pendingAudio;
+  delete s.pendingAudio;
   if (s.state === 'HUMANO') showMenu(s); // la pausa ya terminó: se retoma desde el menú
 
   let handoff = false;
   let unresolved = false;
   let briefSlot: EngineResult['briefSlot'];
   try {
-    const outcome = await route(ctx, s, incoming, assist);
+    const outcome = await route(ctx, s, incoming, assist, { ...options, pendingAudio });
     handoff = outcome.handoff ?? false;
     unresolved = outcome.result === null;
 
@@ -96,6 +101,15 @@ export async function handleMessage(
   return { replies, session: s, handoff, unresolved, ...(briefSlot ? { briefSlot } : {}) };
 }
 
+export interface HandleOptions {
+  /** El texto viene de una nota de voz transcrita: no puede confirmar ni cancelar citas. */
+  viaAudio?: boolean;
+}
+
+interface RouteOptions extends HandleOptions {
+  pendingAudio?: PendingAudio | undefined;
+}
+
 interface Outcome {
   result: StepResult;
   handoff?: boolean;
@@ -103,8 +117,16 @@ interface Outcome {
 }
 
 /** Reglas globales (antes del estado actual) y luego despacho por estado. */
-async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist?: Assist): Promise<Outcome> {
-  if (incoming.type === 'unsupported') return { result: [M.unsupported()] };
+async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist: Assist | undefined, options: RouteOptions): Promise<Outcome> {
+  if (incoming.type === 'unsupported') return { result: [M.unsupported(ctx.audioEnabled ?? false)] };
+
+  // Botones de "esto entendí de su audio". "Sí" solo permite AVANZAR con esos datos (salen de la agenda real al
+  // volver a consultarla); crear la cita sigue exigiendo nombre y la confirmación de siempre.
+  if (incoming.type === 'choice' && incoming.id === ID.audio.si) {
+    const pending = options.pendingAudio;
+    return { result: pending ? await bookFromInterpretation(ctx, s, { intent: 'agendar', ...pending }) : await reprompt(ctx, s) };
+  }
+  if (incoming.type === 'choice' && incoming.id === ID.audio.no) return { result: [M.audioDiscarded(), M.continueStep(s.state)] };
 
   if (incoming.type === 'choice' && incoming.id.startsWith('menu:')) {
     return routeMenuChoice(ctx, s, incoming.id.slice('menu:'.length));
@@ -128,6 +150,11 @@ async function route(ctx: EngineContext, s: Session, incoming: Incoming, assist?
   if (assist && incoming.type === 'text') {
     const assisted = await applyAssist(ctx, s, incoming, assist);
     if (assisted) return assisted;
+  }
+
+  // Una nota de voz nunca confirma ni cancela una cita: en esos pasos solo vale el botón o el texto escrito.
+  if (options.viaAudio && (s.state === 'AGENDAR_CONFIRMAR' || s.state === 'CITAS_CONFIRMAR')) {
+    return { result: [M.audioUseButtons(), ...(await reprompt(ctx, s))] };
   }
 
   return { result: await dispatch(ctx, s, incoming) };

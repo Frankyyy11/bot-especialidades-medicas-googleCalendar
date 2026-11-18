@@ -2,6 +2,8 @@
 
 Este documento explica la capa de IA descrita en `SPEC-IA.md`. Es **opcional**: con `AI_PROVIDER=none` (el valor por defecto) el bot funciona exactamente como antes, solo con menús, botones y palabras clave.
 
+La transcripción de notas de voz es una función aparte, también opcional: vea `docs/AUDIO.md`.
+
 ## Principio: la IA entiende y redacta; el código decide
 
 - La IA **no** consulta disponibilidad, **no** crea ni cancela citas y **no** es fuente de datos. Todo horario, precio, médico o fecha que ve el paciente sale de `config/centro.json` o de la agenda (`AgendaProvider`).

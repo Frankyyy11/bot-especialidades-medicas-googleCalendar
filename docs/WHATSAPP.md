@@ -28,12 +28,13 @@ El centro puede **seguir usando la app WhatsApp Business en el celular con el mi
 | Versión de Graph API | `WHATSAPP_API_VERSION` (por defecto `v23.0`) | Es un valor de partida; confirmar la vigente y su fecha de caducidad. |
 | Mensajes interactivos | `buildMessagePayload` en `src/whatsapp/client.ts` | Botones `reply` (máx. 3), lista con `sections[].rows[]` (máx. 10 filas en total). Límites en `src/whatsapp/limits.ts`. |
 | Marcar leído | `WhatsAppClient.markRead` | `POST /messages` con `status: "read"` y `message_id`. |
+| Descargar audio | `WhatsAppClient.downloadMedia` | `GET /{media-id}` devuelve una URL temporal; esa URL se descarga con el mismo token. **Sin verificar contra el servicio real.** |
 | Firma | `src/whatsapp/webhook.ts` | `X-Hub-Signature-256 = sha256=HMAC_SHA256(cuerpo crudo, App Secret)`. |
 
 ## Reglas de la plataforma que el bot respeta
 
 - Solo responde a mensajes entrantes, dentro de la ventana de 24 horas. No envía plantillas ni inicia conversaciones.
-- Mensajes de audio, imagen, documento o ubicación se contestan pidiendo usar texto.
+- Mensajes de imagen, documento o ubicación se contestan pidiendo usar texto. Los audios también, salvo que la transcripción de notas de voz esté activa (`AUDIO_TRANSCRIPTION`, ver `docs/AUDIO.md`).
 - El webhook responde `200` de inmediato y procesa después; Meta reintenta si no recibe 200, por eso se deduplica por id de mensaje.
 
 ## Seguridad

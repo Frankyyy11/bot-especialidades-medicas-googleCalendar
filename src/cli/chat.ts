@@ -5,9 +5,11 @@
 // con AI_PROVIDER=none funciona solo con reglas. CHAT_NOW=2026-11-16T10:00:00-06:00 fija el reloj (guiones reproducibles).
 
 import 'dotenv/config';
+import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { MemoryAgendaProvider } from '../agenda/memory.js';
-import { createAiProvider, createLocalInterpreter } from '../ai/index.js';
+import { createAiProvider, createLocalInterpreter, createTranscriber } from '../ai/index.js';
+import { audioMimeFromPath } from '../ai/transcribe.js';
 import { Bot } from '../bot.js';
 import { loadClinic } from '../config/clinic.js';
 import { loadEnv } from '../env.js';
@@ -28,6 +30,13 @@ const AI_STATUS: Record<string, (f: Record<string, unknown>) => string> = {
   ia_descartada: (f) => `IA: sin interpretación útil (${String(f.ms)} ms)`,
   ia_respuesta_descartada: (f) => `IA: frase descartada por las guardas (${String(f.motivo)})`,
   ia_tope_diario: () => 'IA: tope diario alcanzado; se respondió solo con reglas',
+  // Solo números: duración, latencia y tokens. El simulador tampoco muestra el texto transcrito.
+  audio_transcrito: (f) => `Audio: transcrito (${String(f.audio_s ?? '?')} s de audio, ${String(f.ms)} ms, tokens ${String(f.tokens_entrada ?? '?')} entrada / ${String(f.tokens_salida ?? '?')} salida)`,
+  audio_reintento: (f) => `Audio: fallo pasajero (${String(f.tipo)}, ${String(f.ms)} ms); se reintenta una vez`,
+  audio_fallo: (f) => `Audio: falló (${String(f.tipo)}, ${String(f.ms)} ms)`,
+  audio_descartado: (f) => `Audio: descartado (${String(f.motivo)})`,
+  audio_por_confirmar: () => 'Audio: fija datos de la reserva; se pide confirmación antes de avanzar',
+  audio_tope_diario: () => 'Audio: tope diario alcanzado',
 };
 let showAiStatus = false;
 if (!showJsonLogs) {
@@ -48,6 +57,10 @@ const aiProvider = createAiProvider(aiEnv);
 const aiLocal = createLocalInterpreter(aiEnv);
 // Con la IA simulada la línea de estado no aporta; con Gemini real sí (CHAT_IA=1 la fuerza).
 showAiStatus = aiEnv.AI_PROVIDER === 'gemini' || process.env.CHAT_IA === '1';
+// Notas de voz: transcriptor simulado si AUDIO_TRANSCRIPTION no está definida; con `gemini` usa Gemini real.
+const audioEnv = loadEnv({ ...process.env, AI_PROVIDER: aiEnv.AI_PROVIDER, AUDIO_TRANSCRIPTION: process.env.AUDIO_TRANSCRIPTION ?? 'fake' });
+const transcriber = createTranscriber(audioEnv);
+showAiStatus ||= audioEnv.AUDIO_TRANSCRIPTION === 'gemini';
 const fixedNow = process.env.CHAT_NOW ? new Date(process.env.CHAT_NOW) : undefined;
 if (fixedNow && Number.isNaN(fixedNow.getTime())) throw new Error('CHAT_NOW no es una fecha válida (use p. ej. 2026-11-16T10:00:00-06:00)');
 const now = fixedNow ? () => fixedNow : () => new Date();
@@ -57,6 +70,9 @@ const bot = new Bot({
   now,
   ...(aiProvider
     ? { ai: { provider: aiProvider, ...(aiLocal ? { local: aiLocal } : {}), timeoutMs: aiEnv.AI_TIMEOUT_MS, maxCallsPerPhonePerDay: aiEnv.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
+    : {}),
+  ...(transcriber
+    ? { audio: { transcriber, maxSeconds: audioEnv.AUDIO_MAX_SECONDS, timeoutMs: audioEnv.AUDIO_TIMEOUT_MS, maxCallsPerPhonePerDay: audioEnv.AI_MAX_CALLS_PER_PHONE_PER_DAY } }
     : {}),
   agenda: new MemoryAgendaProvider({ clinic, confirmationMode, now }),
   sessions: new MemorySessionStore(Number(process.env.SESSION_TTL_MINUTES ?? 30) * 60_000),
@@ -87,10 +103,34 @@ function render(raw: Outgoing[]): void {
   }
 }
 
+/**
+ * /audio <ruta>: pasa un archivo por la misma tubería que una nota de voz de WhatsApp (acuse, validación,
+ * transcripción y motor). Con el transcriptor simulado, un .txt se toma como "lo que dijo" el paciente.
+ */
+async function sendAudio(path: string): Promise<Outgoing[]> {
+  if (!path) {
+    console.log('\nUso: /audio <ruta del archivo>  (ogg, mp3, m4a, wav...; con el transcriptor simulado también .txt)');
+    return [];
+  }
+  const mimeType = audioMimeFromPath(path);
+  if (!mimeType) {
+    console.log('\nNo reconozco ese tipo de archivo. Use ogg, opus, mp3, m4a, aac, wav, webm o flac.');
+    return [];
+  }
+  let data: Buffer;
+  try {
+    data = await readFile(path);
+  } catch {
+    console.log(`\nNo pude leer el archivo: ${path}`);
+    return [];
+  }
+  return bot.handleAudio(PHONE, { load: async () => ({ data, mimeType }) }, { ack: (message) => render([message]) });
+}
+
 async function main(): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY);
   console.log(`Simulador de ${clinic.nombre} (agenda en memoria, IA: ${aiEnv.AI_PROVIDER}). Escriba un número para elegir una opción, o texto libre.`);
-  console.log('Comandos: /salir para terminar.');
+  console.log(`Comandos: /audio <ruta> envía un archivo como nota de voz (audios: ${audioEnv.AUDIO_TRANSCRIPTION}); /salir para terminar.`);
   if (aiEnv.AI_PROVIDER === 'none') {
     console.log('AVISO: la IA está apagada (AI_PROVIDER=none, probablemente en su .env): el bot responde solo con reglas.');
     console.log('       Para probar la IA simulada:  PowerShell: $env:AI_PROVIDER="fake"; npm run chat   |   bash: AI_PROVIDER=fake npm run chat');
@@ -103,10 +143,16 @@ async function main(): Promise<void> {
     if (input === '/salir') break;
     if (input) {
       if (!interactive) console.log(`\nUSTED> ${input}`);
-      const option = /^\d+$/.test(input) ? options[Number(input) - 1] : undefined;
-      const incoming = option ? ({ type: 'choice', id: option.id, title: option.title } as const) : ({ type: 'text', text: input } as const);
-      const replies = await bot.handle(PHONE, incoming);
-      if (replies.length === 0) console.log('\n(el bot está en pausa: recepción atiende esta conversación)');
+      const audioPath = /^\/audio(\s|$)/.test(input) ? input.slice('/audio'.length).trim().replace(/^"(.*)"$/, '$1') : undefined;
+      let replies: Outgoing[];
+      if (audioPath !== undefined) {
+        replies = await sendAudio(audioPath);
+      } else {
+        const option = /^\d+$/.test(input) ? options[Number(input) - 1] : undefined;
+        const incoming = option ? ({ type: 'choice', id: option.id, title: option.title } as const) : ({ type: 'text', text: input } as const);
+        replies = await bot.handle(PHONE, incoming);
+      }
+      if (replies.length === 0 && audioPath === undefined) console.log('\n(el bot está en pausa: recepción atiende esta conversación)');
       else render(replies);
     }
     if (interactive) process.stdout.write('\nUSTED> ');

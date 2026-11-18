@@ -69,8 +69,22 @@ export interface Session {
   booking: Booking;
   /** Cita seleccionada para cancelar. */
   cancelAppointmentId?: string;
+  /**
+   * Lo que se entendió de una nota de voz y espera el "sí" del paciente (solo ids y fechas ya validados;
+   * nunca el texto transcrito). Cualquier otro mensaje lo descarta.
+   */
+  pendingAudio?: PendingAudio;
   /** Turnos recientes enviados a la IA (máx. 6). Nunca contiene nombre, cédula ni datos de citas. */
   aiHistory?: AiTurn[];
+}
+
+export interface PendingAudio {
+  especialidadId?: string;
+  /** Id de un médico o 'any'. */
+  medicoId?: string;
+  fecha?: string;
+  franja?: Franja;
+  hora?: string;
 }
 
 export function newBooking(): Booking {

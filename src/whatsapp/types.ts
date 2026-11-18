@@ -7,6 +7,11 @@ export interface ParsedMessage {
   /** Teléfono del paciente, solo dígitos con código de país (p. ej. 50688881234). */
   from: string;
   message: Incoming;
+  /**
+   * Solo en notas de voz y audios: id del archivo en la Media API. `message` sigue siendo "no soportado",
+   * así que con la transcripción apagada el comportamiento es el de siempre.
+   */
+  audio?: { mediaId: string; mimeType?: string };
 }
 
 export interface ParsedWebhook {
@@ -19,4 +24,6 @@ export interface ParsedWebhook {
 export interface MessageSender {
   send(to: string, message: Outgoing): Promise<void>;
   markRead(messageId: string): Promise<void>;
+  /** Descarga un archivo recibido (notas de voz). Opcional: sin esto los audios se contestan pidiendo texto. */
+  downloadMedia?(mediaId: string, signal?: AbortSignal): Promise<{ data: Buffer; mimeType: string }>;
 }
